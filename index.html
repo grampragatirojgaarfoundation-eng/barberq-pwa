@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BarberQ - Live Salon Booking</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0f172a">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="bg-slate-800 p-4 sticky top-0 z-50 shadow-md flex justify-between items-center border-b border-slate-700">
+    <h1 class="text-xl font-bold text-amber-400">✂️ BarberQ</h1>
+    <button onclick="toggleRegisterModal()" class="bg-amber-500 hover:bg-amber-600 text-slate-900 text-sm font-bold px-3 py-1.5 rounded-lg">
+      + List Salon
+    </button>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 p-4 max-w-2xl mx-auto w-full space-y-4">
+    
+    <!-- Location Status -->
+    <div class="bg-slate-800 p-3 rounded-xl flex items-center justify-between border border-slate-700">
+      <div class="flex items-center space-x-2 text-sm text-slate-300">
+        <span>📍 Location:</span>
+        <span id="location-text" class="font-semibold text-amber-400">Detecting...</span>
+      </div>
+      <button onclick="getUserLocation()" class="text-xs bg-slate-700 hover:bg-slate-600 px-2.5 py-1 rounded">Refresh</button>
+    </div>
+
+    <!-- Live Map View -->
+    <div id="map" class="h-48 w-full rounded-xl border border-slate-700 z-0"></div>
+
+    <!-- Nearby Salons List Header -->
+    <h2 class="text-lg font-bold text-slate-200">Aas Paas Ke Salons (Nearby)</h2>
+
+    <!-- Salons Container -->
+    <div id="shop-list" class="space-y-4">
+      <p class="text-slate-400 text-sm">Searching for nearby shops...</p>
+    </div>
+
+  </main>
+
+  <!-- Booking Modal -->
+  <div id="booking-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-4 z-50">
+    <div class="bg-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4 border border-slate-700 relative">
+      <button onclick="closeBookingModal()" class="absolute top-3 right-3 text-slate-400 text-xl">&times;</button>
+      <h3 id="modal-shop-name" class="text-xl font-bold text-amber-400"></h3>
+      
+      <!-- Live Queue Watch Time -->
+      <div class="bg-slate-900 p-3 rounded-lg border border-slate-700">
+        <p class="text-xs text-slate-400">Current Queue Length: <span id="modal-queue-count" class="font-bold text-white">0</span> people</p>
+        <p class="text-xs text-slate-400">Estimated Waiting Time: <span id="modal-wait-time" class="font-bold text-amber-400">0 mins</span></p>
+      </div>
+
+      <div id="services-list" class="space-y-2">
+        <p class="text-sm font-semibold text-slate-300">Select Service:</p>
+      </div>
+
+      <input type="text" id="cust-name" placeholder="Aapka Naam (Your Name)" class="w-full bg-slate-900 border border-slate-700 p-2.5 rounded-lg text-sm text-white focus:outline-none focus:border-amber-400">
+
+      <button onclick="confirmBooking()" class="w-full bg-amber-500 hover:bg-amber-600 font-bold py-3 text-slate-900 rounded-xl">
+        Confirm Booking & Get Token
+      </button>
+    </div>
+  </div>
+
+  <!-- Register Shop Modal -->
+  <div id="register-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-4 z-50 overflow-y-auto">
+    <div class="bg-slate-800 p-6 rounded-2xl max-w-md w-full space-y-3 border border-slate-700 relative">
+      <button onclick="toggleRegisterModal()" class="absolute top-3 right-3 text-slate-400 text-xl">&times;</button>
+      <h3 class="text-lg font-bold text-amber-400">Apne Salon Ko List Karein</h3>
+      
+      <input type="text" id="reg-name" placeholder="Salon Name" class="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white">
+      <input type="text" id="reg-owner" placeholder="Owner Name" class="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white">
+      <input type="text" id="reg-phone" placeholder="Phone Number" class="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white">
+      <input type="text" id="reg-address" placeholder="Full Address" class="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white">
+      
+      <div class="flex space-x-2">
+        <input type="number" step="any" id="reg-lat" placeholder="Latitude" class="w-1/2 bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white">
+        <input type="number" step="any" id="reg-lng" placeholder="Longitude" class="w-1/2 bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white">
+      </div>
+      
+      <button onclick="submitRegisterShop()" class="w-full bg-amber-500 font-bold py-2.5 text-slate-900 rounded-xl">Save & Publish Salon</button>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
