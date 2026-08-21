@@ -23,7 +23,6 @@
 
   <!-- Main Content -->
   <main class="flex-1 p-4 max-w-2xl mx-auto w-full space-y-4">
-    
     <!-- Location Status -->
     <div class="bg-slate-800 p-3 rounded-xl flex items-center justify-between border border-slate-700">
       <div class="flex items-center space-x-2 text-sm text-slate-300">
@@ -37,13 +36,12 @@
     <div id="map" class="h-48 w-full rounded-xl border border-slate-700 z-0"></div>
 
     <!-- Nearby Salons List Header -->
-    <h2 class="text-lg font-bold text-slate-200">Aas Paas Ke Salons (Nearby)</h2>
+    <h2 class="text-lg font-bold text-slate-200">Aas Paas Ke Salons (50 KM Radius)</h2>
 
     <!-- Salons Container -->
     <div id="shop-list" class="space-y-4">
-      <p class="text-slate-400 text-sm">Searching for nearby shops...</p>
+      <p class="text-slate-400 text-sm flex items-center justify-center py-10">Searching for nearby shops...</p>
     </div>
-
   </main>
 
   <!-- Booking Modal -->
@@ -54,18 +52,16 @@
       
       <!-- Live Queue Watch Time -->
       <div class="bg-slate-900 p-3 rounded-lg border border-slate-700">
-        <p class="text-xs text-slate-400">Current Queue Length: <span id="modal-queue-count" class="font-bold text-white">0</span> people</p>
-        <p class="text-xs text-slate-400">Estimated Waiting Time: <span id="modal-wait-time" class="font-bold text-amber-400">0 mins</span></p>
+        <p class="text-xs text-slate-400">Current Queue: <span id="modal-queue-count" class="font-bold text-white">0</span> people</p>
+        <p class="text-xs text-slate-400">Est. Wait Time: <span id="modal-wait-time" class="font-bold text-amber-400">0 mins</span></p>
       </div>
 
-      <div id="services-list" class="space-y-2">
+      <div id="services-list" class="space-y-2 max-h-40 overflow-y-auto">
         <p class="text-sm font-semibold text-slate-300">Select Service:</p>
       </div>
 
       <input type="text" id="cust-name" placeholder="Aapka Naam (Your Name)" class="w-full bg-slate-900 border border-slate-700 p-2.5 rounded-lg text-sm text-white focus:outline-none focus:border-amber-400">
-      
-      <!-- Naya Mobile Number Field Add Kiya Gaya Hai -->
-      <input type="tel" id="cust-phone" placeholder="Aapka Mobile Number" class="w-full bg-slate-900 border border-slate-700 p-2.5 rounded-lg text-sm text-white focus:outline-none focus:border-amber-400 mt-2">
+      <input type="tel" id="cust-phone" placeholder="Mobile Number (OTP Verify Later)" class="w-full bg-slate-900 border border-slate-700 p-2.5 rounded-lg text-sm text-white focus:outline-none focus:border-amber-400 mt-2">
 
       <button onclick="confirmBooking()" class="w-full bg-amber-500 hover:bg-amber-600 font-bold py-3 text-slate-900 rounded-xl">
         Confirm Booking & Get Token
@@ -73,23 +69,59 @@
     </div>
   </div>
 
-  <!-- Register Shop Modal -->
-  <div id="register-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-4 z-50 overflow-y-auto">
-    <div class="bg-slate-800 p-6 rounded-2xl max-w-md w-full space-y-3 border border-slate-700 relative">
+  <!-- Token Success Modal (UIDAI Style Slip) -->
+  <div id="token-modal" class="fixed inset-0 bg-black/90 hidden items-center justify-center p-4 z-[60]">
+    <div class="bg-white p-6 rounded-2xl max-w-sm w-full text-center space-y-4">
+      <h2 class="text-2xl font-bold text-green-600">Booking Confirmed!</h2>
+      <div class="bg-gray-100 p-4 rounded-xl border-2 border-dashed border-gray-300">
+        <p class="text-sm text-gray-500">Aapka Token Number</p>
+        <p id="display-token" class="text-3xl font-black text-black tracking-widest my-2">TKN-0000</p>
+        <p class="text-sm text-gray-500">Appointment Time</p>
+        <p id="display-time" class="text-xl font-bold text-blue-600">00:00</p>
+      </div>
+      <p class="text-xs text-gray-500 font-medium">Kripya diye gaye samay par salon pahunchein.</p>
+      <button onclick="closeTokenModal()" class="w-full bg-slate-900 text-white font-bold py-3 rounded-lg shadow-lg">Band Karein (Close)</button>
+    </div>
+  </div>
+
+  <!-- Register Shop Modal (Advanced Form) -->
+  <div id="register-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-4 z-50 overflow-y-auto pt-20 pb-10">
+    <div class="bg-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4 border border-slate-700 relative">
       <button onclick="toggleRegisterModal()" class="absolute top-3 right-3 text-slate-400 text-xl">&times;</button>
       <h3 class="text-lg font-bold text-amber-400">Apne Salon Ko List Karein</h3>
       
-      <input type="text" id="reg-name" placeholder="Salon Name" class="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white">
-      <input type="text" id="reg-owner" placeholder="Owner Name" class="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white">
-      <input type="text" id="reg-phone" placeholder="Phone Number" class="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white">
-      <input type="text" id="reg-address" placeholder="Full Address" class="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white">
-      
-      <div class="flex space-x-2">
-        <input type="number" step="any" id="reg-lat" placeholder="Latitude" class="w-1/2 bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white">
-        <input type="number" step="any" id="reg-lng" placeholder="Longitude" class="w-1/2 bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white">
+      <div class="space-y-3">
+        <input type="text" id="reg-name" placeholder="Salon Name" class="w-full bg-slate-900 border border-slate-700 p-2.5 rounded text-sm text-white">
+        <input type="text" id="reg-owner" placeholder="Owner Name" class="w-full bg-slate-900 border border-slate-700 p-2.5 rounded text-sm text-white">
+        <input type="text" id="reg-phone" placeholder="Phone Number" class="w-full bg-slate-900 border border-slate-700 p-2.5 rounded text-sm text-white">
+        <input type="text" id="reg-address" placeholder="Full Address" class="w-full bg-slate-900 border border-slate-700 p-2.5 rounded text-sm text-white">
+        
+        <div class="flex space-x-2">
+          <input type="number" step="any" id="reg-lat" placeholder="Latitude" class="w-1/2 bg-slate-900 border border-slate-700 p-2.5 rounded text-sm text-white">
+          <input type="number" step="any" id="reg-lng" placeholder="Longitude" class="w-1/2 bg-slate-900 border border-slate-700 p-2.5 rounded text-sm text-white">
+          <button onclick="getCurrentLocationForReg()" class="bg-slate-700 text-xs px-3 rounded text-white font-bold">Auto</button>
+        </div>
+
+        <!-- Add Multiple Photos -->
+        <label class="block text-xs text-slate-400 mt-2 font-bold">Upload Photos (Max 10)</label>
+        <input type="file" id="reg-photos" multiple accept="image/*" class="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm text-white file:bg-amber-500 file:border-none file:px-3 file:py-1 file:rounded file:text-slate-900 file:font-bold file:cursor-pointer">
+
+        <!-- Dynamic Services Area -->
+        <div class="bg-slate-900 p-3 rounded-lg border border-slate-700 mt-2">
+            <h4 class="text-sm font-bold text-amber-400 mb-2">Services & Rate List</h4>
+            <div id="dynamic-services" class="space-y-2">
+                <!-- First service row -->
+                <div class="flex space-x-2 service-row">
+                    <input type="text" placeholder="E.g. Haircut" class="s-name w-1/2 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">
+                    <input type="number" placeholder="₹ Price" class="s-price w-1/4 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">
+                    <input type="number" placeholder="Mins" class="s-dur w-1/4 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">
+                </div>
+            </div>
+            <button onclick="addServiceRow()" class="text-xs text-amber-400 mt-3 font-bold hover:underline">+ Add Another Service</button>
+        </div>
       </div>
       
-      <button onclick="submitRegisterShop()" class="w-full bg-amber-500 font-bold py-2.5 text-slate-900 rounded-xl">Save & Publish Salon</button>
+      <button id="submit-btn" onclick="submitRegisterShop()" class="w-full bg-amber-500 font-bold py-3 text-slate-900 rounded-xl mt-4">Save & Publish Salon</button>
     </div>
   </div>
 

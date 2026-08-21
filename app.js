@@ -5,18 +5,12 @@ let map, userMarker;
 let selectedShop = null;
 let selectedService = null;
 
-// Register Service Worker
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js');
-}
-
 // Initialize Leaflet Map
 function initMap() {
   map = L.map('map').setView([userLat, userLng], 13);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19
   }).addTo(map);
-
   userMarker = L.marker([userLat, userLng]).addTo(map).bindPopup("Aap yahan hain!").openPopup();
 }
 
@@ -28,7 +22,6 @@ function getUserLocation() {
         userLat = pos.coords.latitude;
         userLng = pos.coords.longitude;
         document.getElementById('location-text').innerText = `${userLat.toFixed(3)}, ${userLng.toFixed(3)}`;
-        
         if (map) {
           map.setView([userLat, userLng], 14);
           userMarker.setLatLng([userLat, userLng]);
@@ -43,7 +36,32 @@ function getUserLocation() {
   }
 }
 
-// Fetch Nearby Shops from Backend API
+// Get Location Automatically for Registration Form
+function getCurrentLocationForReg() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition((pos) => {
+            document.getElementById('reg-lat').value = pos.coords.latitude;
+            document.getElementById('reg-lng').value = pos.coords.longitude;
+        });
+    } else {
+        alert("Location access denied ya support nahi karti.");
+    }
+}
+
+// Add Dynamic Service Row in Form
+function addServiceRow() {
+    const container = document.getElementById('dynamic-services');
+    const row = document.createElement('div');
+    row.className = "flex space-x-2 service-row";
+    row.innerHTML = `
+        <input type="text" placeholder="Service Name" class="s-name w-1/2 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">
+        <input type="number" placeholder="₹ Price" class="s-price w-1/4 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">
+        <input type="number" placeholder="Mins" class="s-dur w-1/4 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">
+    `;
+    container.appendChild(row);
+}
+
+// Fetch Nearby Shops from Backend API (Uses the new 50KM radius logic)
 async function fetchNearbyShops() {
   const res = await fetch(`/api/shops/nearby?lat=${userLat}&lng=${userLng}`);
   const shops = await res.json();
@@ -51,27 +69,37 @@ async function fetchNearbyShops() {
   const container = document.getElementById('shop-list');
   container.innerHTML = '';
 
+  if(shops.length === 0) {
+      container.innerHTML = '<p class="text-slate-400 text-sm text-center">Aas-paas koi salon nahi mila.</p>';
+      return;
+  }
+
   shops.forEach(shop => {
     // Add Marker on Map
     L.marker([shop.lat, shop.lng]).addTo(map).bindPopup(`<b>${shop.name}</b>`);
 
+    // Build services preview text (taaki bahar se hi rate list dikhe)
+    let servicesText = shop.services.map(s => s.name).join(', ');
+    if(servicesText.length > 30) servicesText = servicesText.substring(0, 30) + '...';
+    
     // Render Cards
     const card = document.createElement('div');
     card.className = "bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col space-y-3";
     card.innerHTML = `
       <div class="flex space-x-3">
-        <img src="${shop.images[0]}" class="w-20 h-20 rounded-lg object-cover">
+        <img src="${shop.images[0]}" class="w-24 h-24 rounded-lg object-cover border border-slate-600">
         <div class="flex-1">
-          <h3 class="font-bold text-lg text-amber-400">${shop.name}</h3>
-          <p class="text-xs text-slate-400">📍 ${shop.address} (${shop.distanceKm} km away)</p>
-          <div class="flex items-center space-x-2 mt-1">
-            <span class="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded font-bold">★ ${shop.rating}</span>
-            <span class="text-xs text-slate-400">👥 Queue: ${shop.queue.length} People</span>
+          <h3 class="font-bold text-lg text-amber-400 leading-tight">${shop.name}</h3>
+          <p class="text-xs text-slate-400 mt-1">📍 ${shop.address} <br><span class="text-amber-500 font-semibold">(${shop.distanceKm} km away)</span></p>
+          <p class="text-xs text-slate-300 mt-1 font-medium">✂️ ${servicesText || 'No services listed'}</p>
+          <div class="flex items-center space-x-2 mt-2">
+            <span class="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded font-bold">★ ${shop.rating || 5.0}</span>
+            <span class="text-xs text-white bg-slate-700 px-2 py-0.5 rounded shadow">👥 Queue: ${shop.queue.length}</span>
           </div>
         </div>
       </div>
-      <button onclick="openBookingModal('${shop.id}')" class="w-full bg-slate-700 hover:bg-slate-600 text-amber-400 text-sm font-bold py-2 rounded-lg">
-        Book Appointment / View Live Queue
+      <button onclick="openBookingModal('${shop.id}')" class="w-full bg-slate-700 hover:bg-amber-500 hover:text-slate-900 text-amber-400 text-sm font-bold py-2.5 rounded-lg border border-slate-600 transition">
+        Book Appointment & Get Token
       </button>
     `;
     container.appendChild(card);
@@ -95,17 +123,24 @@ async function openBookingModal(shopId) {
   const serviceContainer = document.getElementById('services-list');
   serviceContainer.innerHTML = '<p class="text-sm font-semibold text-slate-300">Select Service:</p>';
 
-  selectedShop.services.forEach((s, idx) => {
-    serviceContainer.innerHTML += `
-      <label class="flex items-center justify-between bg-slate-900 p-2.5 rounded-lg border border-slate-700 cursor-pointer">
-        <div class="flex items-center space-x-2">
-          <input type="radio" name="service" value="${idx}" onchange="selectedService = selectedShop.services[${idx}]" class="accent-amber-500">
-          <span class="text-sm">${s.name} (${s.duration} mins)</span>
-        </div>
-        <span class="text-sm font-bold text-amber-400">₹${s.price}</span>
-      </label>
-    `;
-  });
+  if(selectedShop.services && selectedShop.services.length > 0) {
+      selectedShop.services.forEach((s, idx) => {
+        serviceContainer.innerHTML += `
+          <label class="flex items-center justify-between bg-slate-900 p-3 rounded-lg border border-slate-700 cursor-pointer hover:border-amber-500 transition">
+            <div class="flex items-center space-x-3">
+              <input type="radio" name="service" value="${idx}" onchange="selectedService = selectedShop.services[${idx}]" class="accent-amber-500 w-4 h-4">
+              <div>
+                  <p class="text-sm font-bold text-white">${s.name}</p>
+                  <p class="text-xs text-slate-400">⏱️ ${s.duration} mins</p>
+              </div>
+            </div>
+            <span class="text-sm font-bold text-amber-400">₹${s.price}</span>
+          </label>
+        `;
+      });
+  } else {
+      serviceContainer.innerHTML += `<p class="text-xs text-red-400">No services available</p>`;
+  }
 
   document.getElementById('booking-modal').classList.remove('hidden');
   document.getElementById('booking-modal').classList.add('flex');
@@ -122,7 +157,12 @@ function toggleRegisterModal() {
   modal.classList.toggle('flex');
 }
 
-// Submit Registration (Naya Add Kiya Gaya)
+function closeTokenModal() {
+    document.getElementById('token-modal').classList.add('hidden');
+    document.getElementById('token-modal').classList.remove('flex');
+}
+
+// Submit Registration (Advanced: Photos + Multiple Services Array)
 async function submitRegisterShop() {
   const name = document.getElementById('reg-name').value;
   const owner = document.getElementById('reg-owner').value;
@@ -130,17 +170,25 @@ async function submitRegisterShop() {
   const address = document.getElementById('reg-address').value;
   const lat = document.getElementById('reg-lat').value;
   const lng = document.getElementById('reg-lng').value;
+  const photoInput = document.getElementById('reg-photos');
+  const btn = document.getElementById('submit-btn');
 
   if (!name || !owner || !phone || !address || !lat || !lng) {
     alert("Kripya saari details bharein!");
     return;
   }
 
-  // Create fake services list for test
-  const testServices = JSON.stringify([
-      { name: "Haircut", price: 150, duration: 30 },
-      { name: "Beard Trim", price: 80, duration: 15 }
-    ]);
+  // Compile Services into an Array
+  const servicesArray = [];
+  const rows = document.querySelectorAll('.service-row');
+  rows.forEach(row => {
+      const sName = row.querySelector('.s-name').value;
+      const sPrice = row.querySelector('.s-price').value;
+      const sDur = row.querySelector('.s-dur').value;
+      if(sName && sPrice && sDur) {
+          servicesArray.push({ name: sName, price: parseInt(sPrice), duration: parseInt(sDur) });
+      }
+  });
 
   const formData = new FormData();
   formData.append('name', name);
@@ -149,9 +197,19 @@ async function submitRegisterShop() {
   formData.append('address', address);
   formData.append('lat', lat);
   formData.append('lng', lng);
-  formData.append('services', testServices);
+  formData.append('services', JSON.stringify(servicesArray));
+  
+  // Attach multiple photos safely (Max 10)
+  for(let i = 0; i < photoInput.files.length; i++) {
+      if(i < 10) { 
+          formData.append('photos', photoInput.files[i]);
+      }
+  }
 
   try {
+      btn.innerText = "Uploading Photos... Please wait";
+      btn.disabled = true;
+
       const res = await fetch('/api/shops/register', {
           method: 'POST',
           body: formData
@@ -159,21 +217,24 @@ async function submitRegisterShop() {
       const data = await res.json();
       
       if(data.success) {
-          alert("Salon Listed Successfully!");
+          alert("Salon Live Ho Gaya Hai!");
           toggleRegisterModal();
-          fetchNearbyShops(); // List ko turant refresh karein
+          fetchNearbyShops(); 
       } else {
           alert("Error: " + data.error);
       }
   } catch (err) {
       alert("Registration failed!");
+  } finally {
+      btn.innerText = "Save & Publish Salon";
+      btn.disabled = false;
   }
 }
 
-// Submit Booking Update
+// Submit Booking 
 function confirmBooking() {
   const name = document.getElementById('cust-name').value;
-  const phone = document.getElementById('cust-phone').value; // Naya Phone field
+  const phone = document.getElementById('cust-phone').value;
   
   if (!name || !phone || !selectedService) {
     alert('Kripya apna naam, mobile number aur service chunein!');
@@ -183,16 +244,22 @@ function confirmBooking() {
   socket.emit('book_appointment', {
     shopId: selectedShop.id,
     customerName: name,
-    customerPhone: phone, // Phone number backend ko bhej rahe hain
+    customerPhone: phone, 
     serviceName: selectedService.name,
     duration: selectedService.duration
   });
 }
 
-// Token Number aur Time dikhane ka naya alert
+// Show Token Modal beautifully when confirmed
 socket.on('booking_confirmed', (data) => {
-  alert(`Booking Success! Aapka Token hai: ${data.tokenNumber}\nAapka Appointment Time hai: ${data.appointmentTime}`);
   closeBookingModal();
+  
+  document.getElementById('display-token').innerText = data.tokenNumber;
+  document.getElementById('display-time').innerText = data.appointmentTime;
+  
+  document.getElementById('token-modal').classList.remove('hidden');
+  document.getElementById('token-modal').classList.add('flex');
+  
   fetchNearbyShops();
 });
 
