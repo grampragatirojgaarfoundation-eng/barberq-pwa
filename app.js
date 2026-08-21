@@ -122,25 +122,28 @@ function toggleRegisterModal() {
   modal.classList.toggle('flex');
 }
 
-// Submit Booking
+// Submit Booking Update
 function confirmBooking() {
   const name = document.getElementById('cust-name').value;
-  if (!name || !selectedService) {
-    alert('Kripya apna naam aur service chunein!');
+  const phone = document.getElementById('cust-phone').value; // Naya Phone field
+  
+  if (!name || !phone || !selectedService) {
+    alert('Kripya apna naam, mobile number aur service chunein!');
     return;
   }
 
   socket.emit('book_appointment', {
     shopId: selectedShop.id,
     customerName: name,
+    customerPhone: phone, // Phone number backend ko bhej rahe hain
     serviceName: selectedService.name,
     duration: selectedService.duration
   });
 }
 
-// Socket Listener: Confirmation & Real-time Live Queue Updates
+// Token Number aur Time dikhane ka naya alert
 socket.on('booking_confirmed', (data) => {
-  alert(`Booking Success! Token #${data.tokenNumber}. Approx Watch Time: ${data.estimatedWait} minutes.`);
+  alert(`Booking Success! Aapka Token hai: ${data.tokenNumber}\nAapka Appointment Time hai: ${data.appointmentTime}`);
   closeBookingModal();
   fetchNearbyShops();
 });

@@ -12,12 +12,7 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(__dirname));
-
-// Main page (Home Page) ke liye direct route
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Storage Engine for Salon Photo Uploads
@@ -48,12 +43,11 @@ let shops = [
   }
 ];
 
-// API: Fetch Nearby Shops based on Lat/Lng Distance
+// API: Fetch Nearby Shops (Sirf 50 KM ke andar aur distance ke hisaab se)
 app.get('/api/shops/nearby', (req, res) => {
   const userLat = parseFloat(req.query.lat);
   const userLng = parseFloat(req.query.lng);
 
-  // Haversine Formula for Distance Calculation (in Km)
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371; 
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -68,7 +62,9 @@ app.get('/api/shops/nearby', (req, res) => {
   const nearby = shops.map(shop => {
     const dist = calculateDistance(userLat, userLng, shop.lat, shop.lng);
     return { ...shop, distanceKm: dist.toFixed(2) };
-  }).sort((a, b) => a.distanceKm - b.distanceKm);
+  })
+  .filter(shop => shop.distanceKm <= 50) // YAHAN 50 KM KA FILTER LAGA HAI
+  .sort((a, b) => a.distanceKm - b.distanceKm); // SABSE PAAS WALA PAHLE DIKHEGA
 
   res.json(nearby);
 });
@@ -97,6 +93,31 @@ app.post('/api/shops/register', upload.array('photos', 5), (req, res) => {
   res.status(201).json({ success: true, shop: newShop });
 });
 
+// API: Update Salon Profile
+app.put('/api/shops/update/:id', upload.array('photos', 10), (req, res) => {
+  const shopId = req.params.id;
+  const { name, phone, address, description } = req.body;
+  
+  const shopIndex = shops.findIndex(s => s.id === shopId);
+  if(shopIndex !== -1) {
+    // Jo details update ki hain unhe save karo
+    shops[shopIndex].name = name || shops[shopIndex].name;
+    shops[shopIndex].phone = phone || shops[shopIndex].phone;
+    shops[shopIndex].address = address || shops[shopIndex].address;
+    shops[shopIndex].description = description || shops[shopIndex].description;
+    
+    // Nayi photos add karo (Maximum 10 photos)
+    if(req.files && req.files.length > 0) {
+        const newImages = req.files.map(f => `/uploads/${f.filename}`);
+        shops[shopIndex].images = [...shops[shopIndex].images, ...newImages].slice(0, 10); 
+    }
+    
+    res.json({ success: true, message: "Profile Updated Successfully!", shop: shops[shopIndex] });
+  } else {
+    res.status(404).json({ error: "Salon not found" });
+  }
+});
+
 // Socket.io Real-time Live Queue Logic
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
@@ -105,25 +126,32 @@ io.on('connection', (socket) => {
     socket.join(shopId);
   });
 
-  socket.on('book_appointment', ({ shopId, customerName, serviceName, duration }) => {
+  socket.on('book_appointment', ({ shopId, customerName, customerPhone, serviceName, duration }) => {
     const shop = shops.find(s => s.id === shopId);
     if (shop) {
-      const tokenNumber = shop.queue.length + 1;
+      // UIDAI style Token Generate karna
+      const tokenNumber = "TKN-" + Math.floor(1000 + Math.random() * 9000); 
       const totalWaitMinutes = shop.queue.reduce((acc, curr) => acc + curr.duration, 0);
       
+      // Exact Time Fix karna
+      const appointmentTime = new Date(Date.now() + (totalWaitMinutes * 60000));
+      const timeString = appointmentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
       const newBooking = {
         tokenNumber,
         customerName,
+        customerPhone, // Saloon wala is number par call kar sakta hai
         serviceName,
         duration: parseInt(duration),
-        estimatedWait: totalWaitMinutes,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        appointmentTime: timeString
       };
 
       shop.queue.push(newBooking);
 
-      // Real-time update broadcast to everyone viewing this shop
-      io.to(shopId).emit('queue_updated', { queue: shop.queue, shopId });
+      // Saloon wale ko turant notification bhejna
+      io.to(shopId).emit('queue_updated', { queue: shop.queue, shopId, newBooking });
+      
+      // Customer ko token Dena
       socket.emit('booking_confirmed', newBooking);
     }
   });
