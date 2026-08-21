@@ -122,6 +122,54 @@ function toggleRegisterModal() {
   modal.classList.toggle('flex');
 }
 
+// Submit Registration (Naya Add Kiya Gaya)
+async function submitRegisterShop() {
+  const name = document.getElementById('reg-name').value;
+  const owner = document.getElementById('reg-owner').value;
+  const phone = document.getElementById('reg-phone').value;
+  const address = document.getElementById('reg-address').value;
+  const lat = document.getElementById('reg-lat').value;
+  const lng = document.getElementById('reg-lng').value;
+
+  if (!name || !owner || !phone || !address || !lat || !lng) {
+    alert("Kripya saari details bharein!");
+    return;
+  }
+
+  // Create fake services list for test
+  const testServices = JSON.stringify([
+      { name: "Haircut", price: 150, duration: 30 },
+      { name: "Beard Trim", price: 80, duration: 15 }
+    ]);
+
+  const formData = new FormData();
+  formData.append('name', name);
+  formData.append('ownerName', owner);
+  formData.append('phone', phone);
+  formData.append('address', address);
+  formData.append('lat', lat);
+  formData.append('lng', lng);
+  formData.append('services', testServices);
+
+  try {
+      const res = await fetch('/api/shops/register', {
+          method: 'POST',
+          body: formData
+      });
+      const data = await res.json();
+      
+      if(data.success) {
+          alert("Salon Listed Successfully!");
+          toggleRegisterModal();
+          fetchNearbyShops(); // List ko turant refresh karein
+      } else {
+          alert("Error: " + data.error);
+      }
+  } catch (err) {
+      alert("Registration failed!");
+  }
+}
+
 // Submit Booking Update
 function confirmBooking() {
   const name = document.getElementById('cust-name').value;
