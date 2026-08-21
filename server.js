@@ -5,6 +5,9 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
+const mongoose = require('mongoose');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const app = express();
 const server = http.createServer(app);
@@ -12,44 +15,49 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(cors());
 app.use(express.json());
-// Static files serve karne ke liye
 app.use(express.static(__dirname));
 
-// Main page (Home Page) ke liye direct route
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// Storage Engine for Salon Photo Uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
-  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
+// 1. Cloudinary Configuration
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
 });
-const upload = multer({ storage });
 
-// In-Memory Database (Production me isse PostgreSQL ya MongoDB se replace karein)
-let shops = [
-  {
-    id: "shop_1",
-    name: "Royal Look Salon",
-    ownerName: "Ramesh Sharma",
-    phone: "9876543210",
-    lat: 28.6139,
-    lng: 77.2090,
-    address: "Connaught Place, New Delhi",
-    services: [
-      { name: "Haircut", price: 150, duration: 30 },
-      { name: "Beard Trim", price: 80, duration: 15 }
-    ],
-    rating: 4.8,
-    reviewsCount: 24,
-    images: ["https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=500"],
-    queue: []
+// Multer Storage for Cloudinary with Auto-Compression & Optimization
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'barberq_shops',
+    allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
+    transformation: [{ width: 1000, height: 1000, crop: 'limit', quality: 'auto', fetch_format: 'auto' }]
   }
-];
+});
+const upload = multer({ storage: storage });
 
-// API: Fetch Nearby Shops (Sirf 50 KM ke andar aur distance ke hisaab se)
-app.get('/api/shops/nearby', (req, res) => {
+// 2. MongoDB Database Connection
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ MongoDB Database Connected Successfully!"))
+  .catch(err => console.log("❌ MongoDB Connection Error:", err));
+
+// 3. Database Schema
+const shopSchema = new mongoose.Schema({
+    name: String,
+    ownerName: String,
+    phone: String,
+    lat: Number,
+    lng: Number,
+    address: String,
+    services: Array,
+    rating: { type: Number, default: 5.0 },
+    reviewsCount: { type: Number, default: 1 },
+    images: Array,
+    queue: { type: Array, default: [] }
+});
+const Shop = mongoose.model('Shop', shopSchema);
+
+// API: Fetch Nearby Shops from MongoDB
+app.get('/api/shops/nearby', async (req, res) => {
   const userLat = parseFloat(req.query.lat);
   const userLng = parseFloat(req.query.lng);
 
@@ -64,105 +72,101 @@ app.get('/api/shops/nearby', (req, res) => {
     return R * c; 
   };
 
-  const nearby = shops.map(shop => {
-    const dist = calculateDistance(userLat, userLng, shop.lat, shop.lng);
-    return { ...shop, distanceKm: dist.toFixed(2) };
-  })
-  .filter(shop => shop.distanceKm <= 50) // YAHAN 50 KM KA FILTER LAGA HAI
-  .sort((a, b) => a.distanceKm - b.distanceKm); // SABSE PAAS WALA PAHLE DIKHEGA
+  try {
+      const allShops = await Shop.find({});
+      const nearby = allShops.map(shop => {
+        const dist = calculateDistance(userLat, userLng, shop.lat, shop.lng);
+        return { ...shop._doc, distanceKm: dist.toFixed(2), id: shop._id };
+      })
+      .filter(shop => shop.distanceKm <= 50)
+      .sort((a, b) => a.distanceKm - b.distanceKm); 
 
-  res.json(nearby);
-});
-
-// API: Register New Salon
-app.post('/api/shops/register', upload.array('photos', 5), (req, res) => {
-  const { name, ownerName, phone, lat, lng, address, services } = req.body;
-  const imagePaths = req.files ? req.files.map(f => `/uploads/${f.filename}`) : [];
-
-  const newShop = {
-    id: `shop_${Date.now()}`,
-    name,
-    ownerName,
-    phone,
-    lat: parseFloat(lat),
-    lng: parseFloat(lng),
-    address,
-    services: JSON.parse(services || '[]'),
-    rating: 5.0,
-    reviewsCount: 1,
-    images: imagePaths.length ? imagePaths : ["https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=500"],
-    queue: []
-  };
-
-  shops.push(newShop);
-  res.status(201).json({ success: true, shop: newShop });
-});
-
-// API: Update Salon Profile
-app.put('/api/shops/update/:id', upload.array('photos', 10), (req, res) => {
-  const shopId = req.params.id;
-  const { name, phone, address, description } = req.body;
-  
-  const shopIndex = shops.findIndex(s => s.id === shopId);
-  if(shopIndex !== -1) {
-    // Jo details update ki hain unhe save karo
-    shops[shopIndex].name = name || shops[shopIndex].name;
-    shops[shopIndex].phone = phone || shops[shopIndex].phone;
-    shops[shopIndex].address = address || shops[shopIndex].address;
-    shops[shopIndex].description = description || shops[shopIndex].description;
-    
-    // Nayi photos add karo (Maximum 10 photos)
-    if(req.files && req.files.length > 0) {
-        const newImages = req.files.map(f => `/uploads/${f.filename}`);
-        shops[shopIndex].images = [...shops[shopIndex].images, ...newImages].slice(0, 10); 
-    }
-    
-    res.json({ success: true, message: "Profile Updated Successfully!", shop: shops[shopIndex] });
-  } else {
-    res.status(404).json({ error: "Salon not found" });
+      res.json(nearby);
+  } catch(err) {
+      res.status(500).json({ error: "Database error" });
   }
 });
 
-// Socket.io Real-time Live Queue Logic
-io.on('connection', (socket) => {
-  console.log('New client connected:', socket.id);
+// API: Register New Salon & Upload to Cloudinary
+app.post('/api/shops/register', upload.array('photos', 5), async (req, res) => {
+  const { name, ownerName, phone, lat, lng, address, services } = req.body;
+  const imagePaths = req.files ? req.files.map(f => f.path) : [];
 
+  try {
+      const newShop = new Shop({
+        name,
+        ownerName,
+        phone,
+        lat: parseFloat(lat),
+        lng: parseFloat(lng),
+        address,
+        services: JSON.parse(services || '[]'),
+        images: imagePaths.length ? imagePaths : ["https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=500"]
+      });
+      await newShop.save();
+      res.status(201).json({ success: true, shop: { ...newShop._doc, id: newShop._id } });
+  } catch(err) {
+      res.status(500).json({ error: "Failed to save shop" });
+  }
+});
+
+// API: Delete Salon & Auto-Delete Photos from Cloudinary
+app.delete('/api/shops/:id', async (req, res) => {
+  try {
+      const shop = await Shop.findById(req.params.id);
+      if (!shop) return res.status(404).json({ error: "Shop not found" });
+
+      // Cloudinary se photos delete karna
+      for (let imgUrl of shop.images) {
+          if (imgUrl.includes('cloudinary.com')) {
+              const publicId = imgUrl.split('/').pop().split('.')[0];
+              await cloudinary.uploader.destroy(`barberq_shops/${publicId}`);
+          }
+      }
+
+      await Shop.findByIdAndDelete(req.params.id);
+      res.json({ success: true, message: "Shop and cloud images deleted successfully!" });
+  } catch(err) {
+      res.status(500).json({ error: "Failed to delete shop" });
+  }
+});
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+io.on('connection', (socket) => {
   socket.on('join_shop', (shopId) => {
     socket.join(shopId);
   });
 
-  socket.on('book_appointment', ({ shopId, customerName, customerPhone, serviceName, duration }) => {
-    const shop = shops.find(s => s.id === shopId);
-    if (shop) {
-      // UIDAI style Token Generate karna
-      const tokenNumber = "TKN-" + Math.floor(1000 + Math.random() * 9000); 
-      const totalWaitMinutes = shop.queue.reduce((acc, curr) => acc + curr.duration, 0);
-      
-      // Exact Time Fix karna
-      const appointmentTime = new Date(Date.now() + (totalWaitMinutes * 60000));
-      const timeString = appointmentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  socket.on('book_appointment', async ({ shopId, customerName, customerPhone, serviceName, duration }) => {
+    try {
+        const shop = await Shop.findById(shopId);
+        if (shop) {
+          const tokenNumber = "TKN-" + Math.floor(1000 + Math.random() * 9000); 
+          const totalWaitMinutes = shop.queue.reduce((acc, curr) => acc + curr.duration, 0);
+          const appointmentTime = new Date(Date.now() + (totalWaitMinutes * 60000));
+          const timeString = appointmentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-      const newBooking = {
-        tokenNumber,
-        customerName,
-        customerPhone, // Saloon wala is number par call kar sakta hai
-        serviceName,
-        duration: parseInt(duration),
-        appointmentTime: timeString
-      };
+          const newBooking = {
+            tokenNumber,
+            customerName,
+            customerPhone,
+            serviceName,
+            duration: parseInt(duration),
+            appointmentTime: timeString
+          };
 
-      shop.queue.push(newBooking);
+          shop.queue.push(newBooking);
+          await shop.save();
 
-      // Saloon wale ko turant notification bhejna
-      io.to(shopId).emit('queue_updated', { queue: shop.queue, shopId, newBooking });
-      
-      // Customer ko token Dena
-      socket.emit('booking_confirmed', newBooking);
+          io.to(shopId).emit('queue_updated', { queue: shop.queue, shopId, newBooking });
+          socket.emit('booking_confirmed', newBooking);
+        }
+    } catch(err) {
+        console.log(err);
     }
-  });
-
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
   });
 });
 
