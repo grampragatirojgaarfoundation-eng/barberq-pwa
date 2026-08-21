@@ -12,8 +12,13 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Static files serve karne ke liye
+app.use(express.static(__dirname));
+
+// Main page (Home Page) ke liye direct route
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Storage Engine for Salon Photo Uploads
 const storage = multer.diskStorage({
