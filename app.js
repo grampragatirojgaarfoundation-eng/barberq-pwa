@@ -53,12 +53,10 @@ function openProfile(shopId) {
   document.getElementById('prof-name').innerText = selectedShop.shopName;
   document.getElementById('prof-address').innerText = "📍 " + selectedShop.address;
   
-  // FIX 4: 5 Photo Grid Layout Implementation
   const gal = document.getElementById('prof-gallery'); 
   gal.innerHTML = '';
   if (selectedShop.photos && selectedShop.photos.length > 0) {
       selectedShop.photos.forEach((src, index) => {
-          // Badi photo pehle, choti photos baaki grid mein
           let extraClass = index === 0 ? "col-span-4 h-48" : "col-span-1 h-20";
           gal.innerHTML += `<img src="${src}" onclick="openLightbox('${src}')" class="w-full ${extraClass} rounded-lg object-cover cursor-pointer border border-slate-600 hover:opacity-80 transition">`;
       });
@@ -76,13 +74,11 @@ function openProfile(shopId) {
         </label>`;
   });
 
-  // RESTRICT CALENDAR: Only Today + 5 Days Forward Allowed
   const dateInput = document.getElementById('book-date');
   const today = new Date();
   const maxDate = new Date();
   maxDate.setDate(today.getDate() + 5); 
   
-  // ISO formatting perfectly ignores timezones safely
   dateInput.min = today.toLocaleDateString('en-CA');
   dateInput.max = maxDate.toLocaleDateString('en-CA');
   dateInput.value = dateInput.min;
@@ -209,16 +205,19 @@ function openFormModal(mode) {
 }
 function closeFormModal() { document.getElementById('form-modal').classList.replace('flex', 'hidden'); }
 
-// FIX 2: Range Holiday Manager (Perfect Multi-Date Logic)
+// FIX 3: Robust Javascript Timezone-Proof Date Looping
 function addHolidayRange() {
     let startStr = document.getElementById('holiday-start').value;
     let endStr = document.getElementById('holiday-end').value;
     if(!startStr) return alert("Please select 'From Date'");
     if(!endStr) endStr = startStr; 
     
-    let startDate = new Date(startStr);
-    let endDate = new Date(endStr);
-    startDate.setHours(0,0,0,0); endDate.setHours(0,0,0,0); // Avoid timezone shift
+    let [sY, sM, sD] = startStr.split('-').map(Number);
+    let [eY, eM, eD] = endStr.split('-').map(Number);
+    
+    let startDate = new Date(sY, sM - 1, sD);
+    let endDate = new Date(eY, eM - 1, eD);
+
     if(startDate > endDate) return alert("From Date cannot be after To Date");
 
     while(startDate <= endDate) {
@@ -227,7 +226,7 @@ function addHolidayRange() {
         let dd = String(startDate.getDate()).padStart(2, '0');
         let dStr = `${yyyy}-${mm}-${dd}`;
         if(!formClosedDates.includes(dStr)) formClosedDates.push(dStr);
-        startDate.setDate(startDate.getDate() + 1); // increment 1 day
+        startDate.setDate(startDate.getDate() + 1);
     }
     renderHolidays();
     document.getElementById('holiday-start').value = ''; document.getElementById('holiday-end').value = '';
@@ -240,7 +239,6 @@ function renderHolidays() {
     });
 }
 
-// 5 Photo Queue UI
 function handlePhotoSelect(input) {
     if(selectedPhotosToUpload.length + input.files.length > 5) { alert("Maximum 5 photos allowed!"); return; }
     for(let file of input.files) {
@@ -266,15 +264,19 @@ function addServiceRow(n='', p='') {
 }
 function getCurrentLocationForReg() { navigator.geolocation.getCurrentPosition((pos) => { document.getElementById('reg-lat').value = pos.coords.latitude; document.getElementById('reg-lng').value = pos.coords.longitude; }); }
 
-// FIX 1: Robust Edit Saving (Button Not Working Issue Fixed completely)
+// FIX 1: Robust Edit Update Function
 async function submitForm() {
   const shopId = document.getElementById('form-shopId').value, isEdit = shopId !== "";
-  const formData = new FormData();
   
+  const lat = document.getElementById('reg-lat').value;
+  const lng = document.getElementById('reg-lng').value;
+  if(!lat || !lng) return alert("Kripya Latitude/Longitude zaroor bharein (Auto par click karein)!");
+
+  const formData = new FormData();
   formData.append('name', document.getElementById('reg-name').value); formData.append('ownerName', document.getElementById('reg-owner').value);
   formData.append('phone', document.getElementById('reg-phone').value); formData.append('address', document.getElementById('reg-address').value);
-  formData.append('lat', document.getElementById('reg-lat').value); formData.append('lng', document.getElementById('reg-lng').value);
-  formData.append('openingTime', document.getElementById('reg-open').value); formData.append('closingTime', document.getElementById('reg-close').value);
+  formData.append('lat', lat); formData.append('lng', lng);
+  formData.append('openingTime', document.getElementById('reg-open').value || "09:00"); formData.append('closingTime', document.getElementById('reg-close').value || "21:00");
   formData.append('slotDuration', document.getElementById('reg-dur').value); formData.append('chairs', document.getElementById('reg-chair').value);
   formData.append('closedDates', JSON.stringify(formClosedDates)); 
 
@@ -310,26 +312,44 @@ function confirmBooking() {
   socket.emit('book_appointment', { shopId: selectedShop._id, customerName: name, customerPhone: phone, serviceName: selectedService.name, bookingDate: date, timeSlot: selectedSlotTime });
 }
 
-// FIX 3: PDF DOWNLOAD LOGIC IMPLEMENTATION
+// FIX 4: PDF DOWNLOAD FUNCTION & MODAL CLOSE FUNCTION
 function downloadTokenPDF() {
+    const btn = document.getElementById('pdf-download-btn');
+    btn.innerText = "Preparing PDF...";
+    
     const element = document.getElementById('printable-slip');
     const opt = {
         margin:       0.5,
-        filename:     'BarberQ_Token.pdf',
+        filename:     `BarberQ_Token_${Math.floor(Math.random()*1000)}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
         html2canvas:  { scale: 2 },
         jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
     };
-    html2pdf().set(opt).from(element).save();
+    html2pdf().set(opt).from(element).save().then(() => {
+        btn.innerText = "Download PDF";
+    }).catch(err => {
+        alert("PDF Generation Failed, trying alternative print.");
+        window.print();
+        btn.innerText = "Download PDF";
+    });
 }
+
+function closeTokenModal() {
+    document.getElementById('token-modal').classList.replace('flex','hidden');
+}
+
+socket.on('booking_error', (data) => {
+    alert("Error: " + data.message);
+    document.getElementById('book-btn').innerText = "Confirm Appointment";
+});
 
 socket.on('booking_confirmed', (data) => {
   document.getElementById('book-btn').innerText = "Confirm Appointment";
   
-  // Fill slip details
   document.getElementById('display-shop-name').innerText = data.shopName;
   document.getElementById('display-shop-address').innerText = data.shopAddress;
   document.getElementById('display-shop-phone').innerText = "📞 Contact: " + data.shopPhone;
+  document.getElementById('display-cust-name').innerText = data.customerName; // Naya Added
   document.getElementById('display-token').innerText = data.tokenNumber;
   document.getElementById('display-time').innerText = data.appointmentTime;
   
