@@ -1,4 +1,4 @@
-const CACHE_NAME = 'barberq-v2-live'; // Version updated to force refresh
+const CACHE_NAME = 'barberq-v3-auto-update'; // Version updated to strictly force refresh
 const ASSETS = ['/', '/index.html', '/app.js', '/manifest.json'];
 
 self.addEventListener('install', (e) => {

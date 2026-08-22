@@ -15,7 +15,13 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(__dirname));
+
+// FIX: STRICT NO-CACHE HEADERS (Ye PWA ko purana code hold karne se rokega)
+app.use(express.static(__dirname, {
+    setHeaders: (res, path) => {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    }
+}));
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -109,7 +115,6 @@ app.get('/api/shops/:id/slots', async (req, res) => {
         const shop = await Shop.findById(req.params.id);
         if (!shop) return res.status(404).json({ error: "Shop not found" });
 
-        // PERFECT HOLIDAY BLOCK
         const closedArray = shop.closedDates ? shop.closedDates.map(d => String(d).trim()) : [];
         if (closedArray.includes(dateStr)) {
             return res.json({ slots: [], bookings: [], isClosed: true }); 
@@ -226,6 +231,7 @@ io.on('connection', (socket) => {
         const shop = await Shop.findById(shopId);
         if (shop) {
           const closedArray = shop.closedDates ? shop.closedDates.map(d => String(d).trim()) : [];
+          
           if (closedArray.includes(String(bookingDate).trim())) {
               return socket.emit('booking_error', { message: "Booking is disabled! The shop is marked CLOSED for this date." });
           }
