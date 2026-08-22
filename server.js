@@ -29,7 +29,6 @@ const storage = new CloudinaryStorage({
   params: {
     folder: 'barberq_shops',
     allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
-    // Compress logic: reduce width and auto-adjust quality to keep size in low KBs
     transformation: [{ width: 800, crop: 'limit', quality: 'auto:eco', fetch_format: 'auto' }]
   }
 });
@@ -55,13 +54,14 @@ const shopSchema = new mongoose.Schema({
     services: [{ name: String, price: Number, duration: Number }],
     photos: { type: [String], validate: [v => v.length <= 5, 'Max 5 photos'] },
     
-    // UIDAI Style Slot Settings
-    openingTime: { type: String, default: "09:00" }, // 24h format
+    openingTime: { type: String, default: "09:00" }, 
     closingTime: { type: String, default: "21:00" },
-    slotDuration: { type: Number, default: 30 }, // Ek slot kitne minutes ka hoga
-    chairs: { type: Number, default: 1 }, // Ek time par kitne log (Available count)
+    slotDuration: { type: Number, default: 30 }, 
+    chairs: { type: Number, default: 1 }, 
     
-    isOpenToday: { type: Boolean, default: true },
+    // Naya: Owner can mark specific dates as closed ['2026-08-25', '2026-08-26']
+    closedDates: { type: [String], default: [] },
+    
     rating: { type: Number, default: 5.0 },
     createdAt: { type: Date, default: Date.now }
 });
@@ -74,15 +74,12 @@ const bookingSchema = new mongoose.Schema({
     customerPhone: String, 
     tokenNumber: { type: String, required: true }, 
     serviceName: String,
+    bookingDate: { type: String, required: true }, 
+    timeSlot: { type: String, required: true }, 
     
-    // Naya Slot System Data
-    bookingDate: { type: String, required: true }, // 'YYYY-MM-DD'
-    timeSlot: { type: String, required: true }, // '09:30 - 10:00'
-    
-    // AUTO-DELETE MAGIC (MongoDB TTL Index)
+    // AUTO-DELETE MAGIC (Midnight of that date)
     expireAt: { type: Date, required: true } 
 });
-// Jaise hi expireAt ka time aayega, MongoDB is data ko automatically delete kar dega (Zero Garbage)
 bookingSchema.index({ expireAt: 1 }, { expireAfterSeconds: 0 });
 const Booking = mongoose.model('Booking', bookingSchema);
 
@@ -97,7 +94,6 @@ async function deleteImagesFromCloudinary(imageUrls) {
     }
 }
 
-// Helper: Time parser (e.g. "09:30" -> 570 mins)
 const timeToMins = (timeStr) => {
     let [h, m] = timeStr.split(':').map(Number);
     return h * 60 + m;
@@ -115,9 +111,14 @@ const minsToTime = (mins) => {
 // UIDAI Slot Generator API
 app.get('/api/shops/:id/slots', async (req, res) => {
     try {
-        const dateStr = req.query.date; // YYYY-MM-DD
+        const dateStr = req.query.date; 
         const shop = await Shop.findById(req.params.id);
         if (!shop) return res.status(404).json({ error: "Shop not found" });
+
+        // Agar shop owner ne is date ko closed mark kiya hai
+        if (shop.closedDates && shop.closedDates.includes(dateStr)) {
+            return res.json({ slots: [], bookings: [], isClosed: true });
+        }
 
         let startMins = timeToMins(shop.openingTime);
         let endMins = timeToMins(shop.closingTime);
@@ -130,15 +131,14 @@ app.get('/api/shops/:id/slots', async (req, res) => {
             slots.push({ time: timeStr, total: capacity, available: capacity });
         }
 
-        // Fetch bookings for that date
+        // Fetch bookings to calculate availability
         const bookings = await Booking.find({ shopId: shop._id, bookingDate: dateStr });
         bookings.forEach(b => {
             let s = slots.find(slot => slot.time === b.timeSlot);
             if(s && s.available > 0) s.available--;
         });
 
-        // Add bookings list if owner is requesting (for Dashboard)
-        res.json({ slots, bookings });
+        res.json({ slots, bookings, isClosed: false });
     } catch (err) {
         res.status(500).json({ error: "Failed to load slots" });
     }
@@ -172,7 +172,7 @@ app.get('/api/shops/nearby', async (req, res) => {
 
 // Register New Salon
 app.post('/api/shops/register', upload.array('photos', 5), async (req, res) => {
-  const { name, ownerName, phone, address, lat, lng, services, openingTime, closingTime, slotDuration, chairs } = req.body;
+  const { name, ownerName, phone, address, lat, lng, services, openingTime, closingTime, slotDuration, chairs, closedDates } = req.body;
   const imagePaths = req.files ? req.files.map(f => f.path) : [];
 
   try {
@@ -180,6 +180,7 @@ app.post('/api/shops/register', upload.array('photos', 5), async (req, res) => {
         shopName: name, ownerName, phone, address,
         openingTime, closingTime, 
         slotDuration: parseInt(slotDuration), chairs: parseInt(chairs),
+        closedDates: JSON.parse(closedDates || '[]'),
         location: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
         services: JSON.parse(services || '[]'),
         photos: imagePaths
@@ -193,7 +194,7 @@ app.post('/api/shops/register', upload.array('photos', 5), async (req, res) => {
 app.put('/api/shops/:id', upload.array('photos', 5), async (req, res) => {
     try {
         const shop = await Shop.findById(req.params.id);
-        const { name, ownerName, phone, address, services, openingTime, closingTime, slotDuration, chairs, isOpenToday } = req.body;
+        const { name, ownerName, phone, address, services, openingTime, closingTime, slotDuration, chairs, closedDates } = req.body;
         
         if (req.files && req.files.length > 0) {
             await deleteImagesFromCloudinary(shop.photos);
@@ -203,7 +204,7 @@ app.put('/api/shops/:id', upload.array('photos', 5), async (req, res) => {
         shop.shopName = name; shop.ownerName = ownerName; shop.phone = phone; shop.address = address;
         shop.openingTime = openingTime; shop.closingTime = closingTime;
         shop.slotDuration = parseInt(slotDuration); shop.chairs = parseInt(chairs);
-        shop.isOpenToday = (isOpenToday === 'true');
+        shop.closedDates = JSON.parse(closedDates || '[]');
         shop.services = JSON.parse(services || '[]');
 
         await shop.save();
@@ -211,7 +212,6 @@ app.put('/api/shops/:id', upload.array('photos', 5), async (req, res) => {
     } catch (err) { res.status(500).json({ error: "Update Failed" }); }
 });
 
-// Delete Entire Salon
 app.delete('/api/shops/:id', async (req, res) => {
     try {
         const shop = await Shop.findById(req.params.id);
@@ -235,25 +235,25 @@ io.on('connection', (socket) => {
     try {
         const shop = await Shop.findById(shopId);
         if (shop) {
-          // Expiry Time Calculate karna (Jaise 15:00 ka slot 15:00 baje database se delete ho jayega)
-          const endTimeStr = timeSlot.split(' - ')[1]; // Extract "15:00"
-          // Indian Standard Time (IST) offset handle
-          const expireDate = new Date(`${bookingDate}T${endTimeStr}:00+05:30`); 
+          // IMPORTANT FIX: Token expire hoga usi date ki raat 11:59:59 PM baje (Zero Garbage next morning)
+          const expireDate = new Date(`${bookingDate}T23:59:59+05:30`); 
 
           const newBooking = new Booking({
               shopId: shop._id,
               tokenNumber: "TKN-" + Math.floor(1000 + Math.random() * 9000),
               customerName, customerPhone, serviceName,
               bookingDate, timeSlot,
-              expireAt: expireDate // Ye TTL trigger karega
+              expireAt: expireDate 
           });
           await newBooking.save();
 
-          // Refresh slots frontend par bhejo
           io.emit('slot_booked', { shopId, bookingDate });
+          
           socket.emit('booking_confirmed', { 
               tokenNumber: newBooking.tokenNumber, 
-              appointmentTime: `${bookingDate} | ${timeSlot}`
+              appointmentTime: `${bookingDate} | ${timeSlot}`,
+              shopName: shop.shopName,
+              shopAddress: shop.address
           });
         }
     } catch(err) { console.log(err); }
