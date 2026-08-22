@@ -2,7 +2,7 @@
 <html lang="hi">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BarberQ - Live Salon Platform</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0f172a">
@@ -10,7 +10,8 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="/socket.io/socket.io.js"></script>
-  <!-- No external heavy PDF/Image libraries! Everything is built natively for lightning speed -->
+  <!-- Fast Image Export Library (Canvas) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <style>
     .hide-scrollbar::-webkit-scrollbar { display: none; }
     .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -34,7 +35,7 @@
     <div id="shop-list" class="space-y-4"></div>
   </main>
 
-  <!-- FULL SCREEN PROFILE MODAL -->
+  <!-- 1. FULL SCREEN PROFILE MODAL -->
   <div id="profile-modal" class="fixed inset-0 bg-slate-900 z-50 hidden flex-col overflow-y-auto">
     <div class="sticky top-0 bg-slate-800/90 backdrop-blur p-4 flex justify-between items-center border-b border-slate-700 z-10">
       <button type="button" onclick="closeProfile()" class="text-white bg-slate-700 px-3 py-1 rounded-full text-sm font-bold">← Back</button>
@@ -49,16 +50,19 @@
         <p id="prof-address" class="text-sm text-slate-400 mt-1">📍 </p>
       </div>
 
+      <!-- 5 PHOTOS BEAUTIFUL GRID VIEW -->
       <div>
          <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Gallery</h3>
          <div id="prof-gallery" class="grid grid-cols-4 gap-2"></div>
       </div>
 
+      <!-- UIDAI STYLE BOOKING UI -->
       <div class="bg-slate-100 p-5 rounded-2xl border border-slate-300 text-slate-900 shadow-xl relative overflow-hidden">
+        <!-- STRICT OVERLAY IF DATE IS CLOSED -->
         <div id="closed-overlay" class="absolute inset-0 bg-white/90 backdrop-blur-sm z-20 hidden items-center justify-center">
             <div class="text-center">
                 <h2 class="text-3xl font-black text-red-600 border-4 border-red-600 p-4 rounded-lg transform -rotate-12 bg-white">SHOP CLOSED</h2>
-                <p class="text-sm font-bold text-slate-600 mt-4">Booking is disabled for this date</p>
+                <p class="text-sm font-bold text-slate-600 mt-4">Please select another date</p>
             </div>
         </div>
 
@@ -84,6 +88,7 @@
         </div>
       </div>
 
+      <!-- OWNER LIVE DASHBOARD -->
       <div id="owner-dashboard" class="hidden bg-slate-800 p-4 rounded-xl border border-amber-500/50 mt-4">
         <h3 class="text-amber-400 font-bold text-sm mb-2">👑 Live Bookings</h3>
         <div id="owner-bookings-list" class="space-y-2 max-h-48 overflow-y-auto pr-1"></div>
@@ -96,13 +101,13 @@
     <img id="lightbox-img" src="" class="max-w-full max-h-[85vh] object-contain rounded transition-transform duration-300">
   </div>
 
-  <!-- NATIVE HTML CANVAS IMAGE EXPORT TOKEN MODAL -->
+  <!-- DOWNLOADABLE TOKEN SLIP MODAL -->
   <div id="token-modal" class="fixed inset-0 bg-black/90 hidden items-center justify-center p-4 z-[60]">
     <div class="bg-white p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl relative">
       <h2 class="text-2xl font-bold text-green-600 border-b pb-2">Booking Confirmed!</h2>
       
-      <!-- DATA STORED HERE (Visual UI) -->
-      <div id="printable-slip" class="bg-blue-50 p-6 rounded-xl border-2 border-dashed border-blue-400 text-center">
+      <!-- THIS DIV IS EXPORTED AS IMAGE -->
+      <div id="printable-slip" class="bg-blue-50 p-6 rounded-xl border-2 border-dashed border-blue-400 text-center" style="background-color: #eff6ff;">
         <p class="text-[12px] text-slate-500 font-bold uppercase tracking-wide">BarberQ E-Token</p>
         <p id="display-shop-name" class="font-black text-xl text-slate-800 mt-2"></p>
         <p id="display-shop-address" class="text-xs text-slate-600 mt-1"></p>
@@ -120,78 +125,67 @@
 
       <div class="flex space-x-2">
          <!-- Fast Image Export Button -->
-         <button type="button" onclick="downloadTokenImage()" class="w-1/2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-3 rounded-lg shadow-lg">Save to Gallery</button>
-         <button type="button" onclick="closeTokenModal()" class="w-1/2 bg-slate-900 text-white text-sm font-bold py-3 rounded-lg shadow-lg">Close</button>
+         <button type="button" id="img-download-btn" onclick="downloadTokenImage()" class="w-1/2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-3 rounded-lg shadow-lg">Save to Gallery</button>
+         <button type="button" onclick="closeTokenModal()" class="w-1/2 bg-slate-900 text-white text-sm font-bold py-3 rounded-lg shadow-lg">Close Window</button>
       </div>
     </div>
   </div>
 
-  <!-- FIXED FORM SCROLLING (Structured Flex Layout) -->
-  <div id="form-modal" class="fixed inset-0 bg-black/90 hidden items-end sm:items-center justify-center z-[70]">
-    <div class="bg-slate-800 w-full max-w-md max-h-[90vh] rounded-t-2xl sm:rounded-2xl flex flex-col relative shadow-2xl border border-slate-700">
+  <!-- FORM MODAL -->
+  <div id="form-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-4 z-[70]">
+    <div class="bg-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4 border border-slate-700 relative max-h-[90vh] overflow-y-auto hide-scrollbar pb-10">
+      <button type="button" onclick="closeFormModal()" class="absolute top-3 right-3 text-slate-400 text-xl">&times;</button>
+      <h3 id="form-title" class="text-lg font-bold text-amber-400">Salon Setup</h3>
       
-      <!-- Sticky Header -->
-      <div class="p-4 border-b border-slate-700 flex justify-between items-center shrink-0">
-          <h3 id="form-title" class="text-lg font-bold text-amber-400">Salon Setup</h3>
-          <button type="button" onclick="closeFormModal()" class="text-slate-400 text-3xl leading-none">&times;</button>
-      </div>
-
-      <!-- Scrollable Body Container -->
-      <div class="p-5 overflow-y-auto hide-scrollbar flex-1 space-y-4 pb-10">
+      <div class="space-y-3">
         <input type="hidden" id="form-shopId">
-        <input type="text" id="reg-name" placeholder="Salon Name" class="w-full bg-slate-900 border border-slate-600 p-3 rounded text-sm text-white focus:border-amber-500">
-        <input type="text" id="reg-owner" placeholder="Owner Name" class="w-full bg-slate-900 border border-slate-600 p-3 rounded text-sm text-white focus:border-amber-500">
-        <input type="text" id="reg-phone" placeholder="Registered Phone" class="w-full bg-slate-900 border border-slate-600 p-3 rounded text-sm text-white focus:border-amber-500">
-        <input type="text" id="reg-address" placeholder="Full Address" class="w-full bg-slate-900 border border-slate-600 p-3 rounded text-sm text-white focus:border-amber-500">
+        <input type="text" id="reg-name" placeholder="Salon Name" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-sm text-white">
+        <input type="text" id="reg-owner" placeholder="Owner Name" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-sm text-white">
+        <input type="text" id="reg-phone" placeholder="Registered Phone" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-sm text-white">
+        <input type="text" id="reg-address" placeholder="Full Address" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-sm text-white">
         
         <div class="flex space-x-2">
-          <div class="w-1/2"><label class="text-[10px] text-slate-400 font-bold uppercase">Open Time</label><input type="time" id="reg-open" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-sm text-white"></div>
-          <div class="w-1/2"><label class="text-[10px] text-slate-400 font-bold uppercase">Close Time</label><input type="time" id="reg-close" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-sm text-white"></div>
+          <div class="w-1/2"><label class="text-[10px] text-slate-400">Open Time</label><input type="time" id="reg-open" class="w-full bg-slate-900 border border-slate-600 p-2 rounded text-sm text-white"></div>
+          <div class="w-1/2"><label class="text-[10px] text-slate-400">Close Time</label><input type="time" id="reg-close" class="w-full bg-slate-900 border border-slate-600 p-2 rounded text-sm text-white"></div>
         </div>
         
         <div class="flex space-x-2">
-          <div class="w-1/2"><label class="text-[10px] text-slate-400 font-bold uppercase">Slot Duration (Mins)</label><input type="number" id="reg-dur" value="30" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-sm text-white"></div>
-          <div class="w-1/2"><label class="text-[10px] text-slate-400 font-bold uppercase">Capacity/Chairs</label><input type="number" id="reg-chair" value="1" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-sm text-white"></div>
+          <div class="w-1/2"><label class="text-[10px] text-slate-400">Slot Duration (Mins)</label><input type="number" id="reg-dur" value="30" class="w-full bg-slate-900 border border-slate-600 p-2 rounded text-sm text-white"></div>
+          <div class="w-1/2"><label class="text-[10px] text-slate-400">Capacity/Chairs</label><input type="number" id="reg-chair" value="1" class="w-full bg-slate-900 border border-slate-600 p-2 rounded text-sm text-white"></div>
         </div>
 
-        <div class="bg-slate-900 p-4 rounded-xl border border-slate-700 shadow-inner">
-            <h4 class="text-xs font-bold text-red-400 uppercase tracking-widest mb-3">Mark Closed Dates (Holidays)</h4>
-            <div class="flex space-x-2 mb-3 items-end">
+        <div class="bg-slate-900 p-3 rounded-lg border border-slate-700">
+            <h4 class="text-[11px] font-bold text-red-400 mb-2">Mark Closed Dates (Holidays)</h4>
+            <div class="flex space-x-2 mb-2 items-end">
                 <div class="w-1/2"><label class="text-[10px] text-slate-400">From Date</label><input type="date" id="holiday-start" class="w-full bg-slate-800 p-2 rounded text-xs text-white border border-slate-600"></div>
                 <div class="w-1/2"><label class="text-[10px] text-slate-400">To Date</label><input type="date" id="holiday-end" class="w-full bg-slate-800 p-2 rounded text-xs text-white border border-slate-600"></div>
                 <button type="button" onclick="addHolidayRange()" class="bg-slate-700 px-3 py-2 rounded text-xs text-white font-bold">Add</button>
             </div>
-            <div id="holiday-list" class="flex flex-wrap gap-2"></div>
+            <div id="holiday-list" class="flex flex-wrap gap-2 mt-2"></div>
         </div>
 
         <div class="flex space-x-2">
-          <input type="number" step="any" id="reg-lat" placeholder="Latitude" class="w-1/2 bg-slate-900 border border-slate-600 p-3 rounded text-sm text-white">
-          <input type="number" step="any" id="reg-lng" placeholder="Longitude" class="w-1/2 bg-slate-900 border border-slate-600 p-3 rounded text-sm text-white">
-          <button type="button" onclick="getCurrentLocationForReg()" class="bg-slate-700 px-4 rounded text-xs text-white font-bold hover:bg-slate-600">Auto</button>
+          <input type="number" step="any" id="reg-lat" placeholder="Latitude" class="w-1/2 bg-slate-900 border border-slate-600 p-2 rounded text-sm text-white">
+          <input type="number" step="any" id="reg-lng" placeholder="Longitude" class="w-1/2 bg-slate-900 border border-slate-600 p-2 rounded text-sm text-white">
+          <button type="button" onclick="getCurrentLocationForReg()" class="bg-slate-700 px-3 rounded text-xs text-white font-bold">Auto</button>
         </div>
 
-        <div>
-           <label class="block text-[11px] text-amber-400 font-bold uppercase mb-2">Upload Photos (Max 5, Max 1MB Each)</label>
-           <div class="flex items-center space-x-3 mb-2">
-              <button type="button" onclick="document.getElementById('reg-photos').click()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 text-xs font-bold rounded shadow-lg text-white">+ Pick Photo</button>
-              <span id="photo-count-text" class="text-xs text-slate-400 bg-slate-900 px-2 py-1 rounded">0/5 added</span>
-           </div>
-           <input type="file" id="reg-photos" multiple accept="image/*" class="hidden" onchange="handlePhotoSelect(this)">
-           <div id="photo-preview-list" class="flex flex-wrap gap-2"></div>
+        <label class="block text-[11px] text-amber-400 font-bold">Upload Photos (Hold CTRL / Long Press to select multiple - Max 5)</label>
+        <div class="flex items-center space-x-2">
+           <button type="button" onclick="document.getElementById('reg-photos').click()" class="bg-blue-600 hover:bg-blue-500 px-3 py-2 text-xs font-bold rounded text-white">+ Pick Photo</button>
+           <span id="photo-count-text" class="text-xs text-slate-400">0/5 added</span>
         </div>
+        <input type="file" id="reg-photos" multiple accept="image/*" class="hidden" onchange="handlePhotoSelect(this)">
+        <div id="photo-preview-list" class="flex flex-wrap gap-2 mt-2"></div>
 
-        <div class="bg-slate-900 p-4 rounded-xl border border-slate-700 shadow-inner">
-            <h4 class="text-xs font-bold text-amber-400 uppercase tracking-widest mb-3">Services</h4>
-            <div id="dynamic-services" class="space-y-3"></div>
-            <button type="button" onclick="addServiceRow()" class="text-xs text-amber-400 mt-3 font-bold underline">+ Add Additional Service</button>
+        <div class="bg-slate-900 p-3 rounded-lg border border-slate-700">
+            <h4 class="text-sm font-bold text-amber-400 mb-2">Services</h4>
+            <div id="dynamic-services" class="space-y-2"></div>
+            <button type="button" onclick="addServiceRow()" class="text-xs text-amber-400 mt-2 font-bold">+ Add Service</button>
         </div>
       </div>
       
-      <!-- Sticky Footer -->
-      <div class="p-4 border-t border-slate-700 bg-slate-800 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.3)]">
-          <button type="button" id="submit-btn" onclick="submitForm()" class="w-full bg-amber-500 hover:bg-amber-600 font-black py-3.5 text-slate-900 text-lg rounded-xl shadow-lg transition">Save Profile</button>
-      </div>
-
+      <button type="button" id="submit-btn" onclick="submitForm()" class="w-full bg-amber-500 font-bold py-3 text-slate-900 rounded-xl mt-4">Save Profile</button>
     </div>
   </div>
 
