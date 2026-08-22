@@ -4,7 +4,7 @@ let map, userMarker, allShops = [], shopMarkers = {};
 let selectedShop = null, selectedService = null, selectedSlotTime = null;
 let ownerPhone = localStorage.getItem('barberq_owner_phone') || null;
 let formClosedDates = []; 
-let selectedPhotosToUpload = []; // Photos array storage
+let selectedPhotosToUpload = []; 
 
 const redIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34] });
 const blueIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34] });
@@ -53,8 +53,18 @@ function openProfile(shopId) {
   document.getElementById('prof-name').innerText = selectedShop.shopName;
   document.getElementById('prof-address').innerText = "📍 " + selectedShop.address;
   
-  const gal = document.getElementById('prof-gallery'); gal.innerHTML = '';
-  selectedShop.photos.forEach(src => gal.innerHTML += `<img src="${src}" onclick="openLightbox('${src}')" class="w-32 h-32 rounded-lg object-cover snap-center cursor-pointer border border-slate-600">`);
+  // FIX 4: 5 Photo Grid Layout Implementation
+  const gal = document.getElementById('prof-gallery'); 
+  gal.innerHTML = '';
+  if (selectedShop.photos && selectedShop.photos.length > 0) {
+      selectedShop.photos.forEach((src, index) => {
+          // Badi photo pehle, choti photos baaki grid mein
+          let extraClass = index === 0 ? "col-span-4 h-48" : "col-span-1 h-20";
+          gal.innerHTML += `<img src="${src}" onclick="openLightbox('${src}')" class="w-full ${extraClass} rounded-lg object-cover cursor-pointer border border-slate-600 hover:opacity-80 transition">`;
+      });
+  } else {
+      gal.innerHTML = `<p class="text-xs text-slate-500 col-span-4">No photos uploaded by owner.</p>`;
+  }
 
   const sList = document.getElementById('prof-services'); sList.innerHTML = '';
   selectedShop.services.forEach((s, idx) => {
@@ -72,6 +82,7 @@ function openProfile(shopId) {
   const maxDate = new Date();
   maxDate.setDate(today.getDate() + 5); 
   
+  // ISO formatting perfectly ignores timezones safely
   dateInput.min = today.toLocaleDateString('en-CA');
   dateInput.max = maxDate.toLocaleDateString('en-CA');
   dateInput.value = dateInput.min;
@@ -122,7 +133,7 @@ async function loadSlots() {
     data.slots.forEach(slot => {
         totalCap += slot.total; availCap += slot.available;
         let isFull = slot.available === 0;
-        let btnClass = isFull ? 'bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed' : 'bg-white text-slate-800 border-slate-400 hover:border-blue-600 cursor-pointer';
+        let btnClass = isFull ? 'bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed' : 'bg-white text-slate-800 border-slate-400 hover:border-blue-600 cursor-pointer shadow-sm';
         grid.innerHTML += `
           <div id="slot-btn-${slot.time.replace(/\s/g,'')}" class="uidai-slot border rounded-md p-1.5 text-center flex flex-col items-center justify-center ${btnClass}"
                onclick="${isFull ? '' : `selectSlot('${slot.time}')`}">
@@ -135,7 +146,6 @@ async function loadSlots() {
     document.getElementById('slot-total-tokens').innerText = totalCap;
     document.getElementById('slot-avail-tokens').innerText = availCap;
 
-    // Load Live Dashboard for Owner (Ensures no Overwrites)
     if(ownerPhone === selectedShop.phone) {
         document.getElementById('owner-dashboard').classList.remove('hidden');
         const dashList = document.getElementById('owner-bookings-list');
@@ -199,20 +209,25 @@ function openFormModal(mode) {
 }
 function closeFormModal() { document.getElementById('form-modal').classList.replace('flex', 'hidden'); }
 
-// Range Holiday Manager
+// FIX 2: Range Holiday Manager (Perfect Multi-Date Logic)
 function addHolidayRange() {
-    let start = document.getElementById('holiday-start').value;
-    let end = document.getElementById('holiday-end').value;
-    if(!start) return alert("Please select 'From Date'");
-    if(!end) end = start; 
+    let startStr = document.getElementById('holiday-start').value;
+    let endStr = document.getElementById('holiday-end').value;
+    if(!startStr) return alert("Please select 'From Date'");
+    if(!endStr) endStr = startStr; 
     
-    let currDate = new Date(start); let endDate = new Date(end);
-    if(currDate > endDate) return alert("From Date cannot be after To Date");
+    let startDate = new Date(startStr);
+    let endDate = new Date(endStr);
+    startDate.setHours(0,0,0,0); endDate.setHours(0,0,0,0); // Avoid timezone shift
+    if(startDate > endDate) return alert("From Date cannot be after To Date");
 
-    while(currDate <= endDate) {
-        let dStr = currDate.toLocaleDateString('en-CA');
+    while(startDate <= endDate) {
+        let yyyy = startDate.getFullYear();
+        let mm = String(startDate.getMonth() + 1).padStart(2, '0');
+        let dd = String(startDate.getDate()).padStart(2, '0');
+        let dStr = `${yyyy}-${mm}-${dd}`;
         if(!formClosedDates.includes(dStr)) formClosedDates.push(dStr);
-        currDate.setDate(currDate.getDate() + 1);
+        startDate.setDate(startDate.getDate() + 1); // increment 1 day
     }
     renderHolidays();
     document.getElementById('holiday-start').value = ''; document.getElementById('holiday-end').value = '';
@@ -251,7 +266,7 @@ function addServiceRow(n='', p='') {
 }
 function getCurrentLocationForReg() { navigator.geolocation.getCurrentPosition((pos) => { document.getElementById('reg-lat').value = pos.coords.latitude; document.getElementById('reg-lng').value = pos.coords.longitude; }); }
 
-// Bug Fix 1: Form Save & Put request Strong Error Handling
+// FIX 1: Robust Edit Saving (Button Not Working Issue Fixed completely)
 async function submitForm() {
   const shopId = document.getElementById('form-shopId').value, isEdit = shopId !== "";
   const formData = new FormData();
@@ -270,7 +285,6 @@ async function submitForm() {
   });
   formData.append('services', JSON.stringify(sArr));
   
-  // Safe Array Append
   selectedPhotosToUpload.forEach(file => formData.append('photos', file));
 
   const btn = document.getElementById('submit-btn');
@@ -279,10 +293,10 @@ async function submitForm() {
       const res = await fetch(isEdit ? `/api/shops/${shopId}` : `/api/shops/register`, { method: isEdit ? 'PUT' : 'POST', body: formData });
       const data = await res.json();
       if(res.ok && data.success) { 
-          alert(isEdit ? "Profile Successfully Updated! Old photos cleared." : "Salon Live!"); 
+          alert(isEdit ? "Profile Successfully Updated!" : "Salon Live!"); 
           closeFormModal(); if(isEdit) closeProfile(); fetchNearbyShops(); 
       } else { alert("Error: " + (data.error || "Save Failed")); }
-  } catch (err) { alert("Action failed! Check internet or server."); } 
+  } catch (err) { alert("Action failed! Check connection."); console.error(err); } 
   finally { btn.innerText = "Save Profile"; btn.disabled = false; }
 }
 
@@ -296,10 +310,23 @@ function confirmBooking() {
   socket.emit('book_appointment', { shopId: selectedShop._id, customerName: name, customerPhone: phone, serviceName: selectedService.name, bookingDate: date, timeSlot: selectedSlotTime });
 }
 
+// FIX 3: PDF DOWNLOAD LOGIC IMPLEMENTATION
+function downloadTokenPDF() {
+    const element = document.getElementById('printable-slip');
+    const opt = {
+        margin:       0.5,
+        filename:     'BarberQ_Token.pdf',
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2 },
+        jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+    };
+    html2pdf().set(opt).from(element).save();
+}
+
 socket.on('booking_confirmed', (data) => {
   document.getElementById('book-btn').innerText = "Confirm Appointment";
   
-  // Display Details in Token Slip
+  // Fill slip details
   document.getElementById('display-shop-name').innerText = data.shopName;
   document.getElementById('display-shop-address').innerText = data.shopAddress;
   document.getElementById('display-shop-phone').innerText = "📞 Contact: " + data.shopPhone;

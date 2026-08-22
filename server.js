@@ -17,6 +17,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
+// 1. Cloudinary Setup
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -33,6 +34,7 @@ const storage = new CloudinaryStorage({
 });
 const upload = multer({ storage: storage });
 
+// 2. MongoDB Database Connection
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Database Connected Successfully!"))
   .catch(err => console.log("❌ MongoDB Connection Error:", err));
@@ -75,10 +77,12 @@ const bookingSchema = new mongoose.Schema({
     timeSlot: { type: String, required: true }, 
     expireAt: { type: Date, required: true } 
 });
+// Zero Garbage: Delete booking automatically at Midnight
 bookingSchema.index({ expireAt: 1 }, { expireAfterSeconds: 0 });
 const Booking = mongoose.model('Booking', bookingSchema);
 
 async function deleteImagesFromCloudinary(imageUrls) {
+    if(!imageUrls || imageUrls.length === 0) return;
     for (let imgUrl of imageUrls) {
         if (imgUrl.includes('cloudinary.com')) {
             const urlParts = imgUrl.split('/');
@@ -169,26 +173,46 @@ app.post('/api/shops/register', upload.array('photos', 5), async (req, res) => {
   } catch(err) { res.status(500).json({ error: "Registration Failed." }); }
 });
 
+// BUG FIX 1: Robust Edit Settings Route
 app.put('/api/shops/:id', upload.array('photos', 5), async (req, res) => {
     try {
         const shop = await Shop.findById(req.params.id);
-        const { name, ownerName, phone, address, services, openingTime, closingTime, slotDuration, chairs, closedDates, isOpenToday } = req.body;
+        if (!shop) return res.status(404).json({ error: "Shop not found" });
+
+        const { name, ownerName, phone, address, lat, lng, services, openingTime, closingTime, slotDuration, chairs, closedDates, isOpenToday } = req.body;
         
+        // Handle Photos Safe Replacement
         if (req.files && req.files.length > 0) {
-            await deleteImagesFromCloudinary(shop.photos);
+            if(shop.photos && shop.photos.length > 0) {
+                await deleteImagesFromCloudinary(shop.photos);
+            }
             shop.photos = req.files.map(f => f.path);
         }
 
-        shop.shopName = name; shop.ownerName = ownerName; shop.phone = phone; shop.address = address;
-        shop.openingTime = openingTime; shop.closingTime = closingTime;
-        shop.slotDuration = parseInt(slotDuration) || 30; shop.chairs = parseInt(chairs) || 1;
-        shop.closedDates = JSON.parse(closedDates || '[]');
+        // Update All other fields explicitly
+        shop.shopName = name; 
+        shop.ownerName = ownerName; 
+        shop.phone = phone; 
+        shop.address = address;
+        if(lat && lng) {
+            shop.location = { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] };
+        }
+        shop.openingTime = openingTime; 
+        shop.closingTime = closingTime;
+        shop.slotDuration = parseInt(slotDuration) || 30; 
+        shop.chairs = parseInt(chairs) || 1;
+        
+        try { shop.closedDates = JSON.parse(closedDates || '[]'); } catch(e){}
+        try { shop.services = JSON.parse(services || '[]'); } catch(e){}
+        
         shop.isOpenToday = (isOpenToday === 'true');
-        shop.services = JSON.parse(services || '[]');
 
         await shop.save();
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: "Update Failed" }); }
+    } catch (err) { 
+        console.error(err);
+        res.status(500).json({ error: "Update Failed on Server" }); 
+    }
 });
 
 app.delete('/api/shops/:id', async (req, res) => {
@@ -205,7 +229,7 @@ app.delete('/api/shops/:id', async (req, res) => {
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 // ==========================================
-// 5. SOCKET.IO (Slot Booking Logic)
+// 5. SOCKET.IO (Booking Logic)
 // ==========================================
 io.on('connection', (socket) => {
   socket.join('global');
@@ -214,10 +238,10 @@ io.on('connection', (socket) => {
     try {
         const shop = await Shop.findById(shopId);
         if (shop) {
-          // Fix: Ensure token deletes exactly 24 hours after booking date
+          // Expiry safe buffer (Delete precisely after the day ends)
           const expireDate = new Date(bookingDate);
           expireDate.setDate(expireDate.getDate() + 1); 
-          expireDate.setHours(2, 0, 0, 0); // Expiry safe buffer
+          expireDate.setHours(2, 0, 0, 0); 
 
           const newBooking = new Booking({
               shopId: shop._id,
@@ -234,7 +258,7 @@ io.on('connection', (socket) => {
               appointmentTime: `${bookingDate} | ${timeSlot}`,
               shopName: shop.shopName,
               shopAddress: shop.address,
-              shopPhone: shop.phone // Owner's contact sent for the slip
+              shopPhone: shop.phone 
           });
         }
     } catch(err) { console.log(err); }
