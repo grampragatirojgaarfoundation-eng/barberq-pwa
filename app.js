@@ -9,6 +9,13 @@ let selectedPhotosToUpload = [];
 const redIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34] });
 const blueIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34] });
 
+// To prevent PWA Service Worker caching bugs from affecting this session
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+        reg.update(); // Forces update check every page load
+    });
+}
+
 function initMap() {
   map = L.map('map').setView([userLat, userLng], 13);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
@@ -35,11 +42,11 @@ async function fetchNearbyShops() {
     marker.on('click', () => openProfile(shop._id)); shopMarkers[shop._id] = marker;
     
     container.innerHTML += `
-      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 cursor-pointer hover:border-amber-500 transition flex space-x-3" onclick="openProfile('${shop._id}')">
-        <img src="${shop.photos[0] || 'https://via.placeholder.com/100'}" class="w-20 h-20 rounded-lg object-cover">
+      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 cursor-pointer hover:border-amber-500 transition flex space-x-3 shadow-lg" onclick="openProfile('${shop._id}')">
+        <img src="${shop.photos[0] || 'https://via.placeholder.com/100'}" class="w-20 h-20 rounded-lg object-cover border border-slate-600">
         <div class="flex-1">
-          <div class="flex justify-between items-start"><h3 class="font-bold text-amber-400">${shop.shopName}</h3></div>
-          <p class="text-xs text-slate-400">📍 ${shop.distanceKm} km away</p>
+          <div class="flex justify-between items-start"><h3 class="font-bold text-amber-400 text-lg leading-tight">${shop.shopName}</h3></div>
+          <p class="text-xs text-slate-400 mt-1">📍 ${shop.distanceKm} km away</p>
         </div>
       </div>`;
   });
@@ -58,37 +65,30 @@ function openProfile(shopId) {
   if (selectedShop.photos && selectedShop.photos.length > 0) {
       selectedShop.photos.forEach((src, index) => {
           let extraClass = index === 0 ? "col-span-4 h-48" : "col-span-1 h-20";
-          gal.innerHTML += `<img src="${src}" onclick="openLightbox('${src}')" class="w-full ${extraClass} rounded-lg object-cover cursor-pointer border border-slate-600 hover:opacity-80 transition">`;
+          gal.innerHTML += `<img src="${src}" onclick="openLightbox('${src}')" class="w-full ${extraClass} rounded-lg object-cover cursor-pointer border border-slate-600 hover:opacity-80 transition shadow-md">`;
       });
   } else {
-      gal.innerHTML = `<p class="text-xs text-slate-500 col-span-4">No photos uploaded by owner.</p>`;
+      gal.innerHTML = `<p class="text-xs text-slate-500 col-span-4 text-center py-4 bg-slate-800 rounded">No photos uploaded by owner.</p>`;
   }
 
   const sList = document.getElementById('prof-services'); sList.innerHTML = '';
   selectedShop.services.forEach((s, idx) => {
       sList.innerHTML += `
-        <label class="flex items-center justify-between p-2 hover:bg-blue-50 rounded cursor-pointer border-b border-slate-100 last:border-0">
-          <div class="flex space-x-2 items-center"><input type="radio" name="service" value="${idx}" onchange="selectedService = selectedShop.services[${idx}]; checkBookingBtn();" class="accent-blue-600 w-4 h-4">
+        <label class="flex items-center justify-between p-2.5 hover:bg-blue-50 rounded-lg cursor-pointer border-b border-slate-100 last:border-0 transition">
+          <div class="flex space-x-3 items-center"><input type="radio" name="service" value="${idx}" onchange="selectedService = selectedShop.services[${idx}]; checkBookingBtn();" class="accent-blue-600 w-4 h-4">
           <div><p class="text-sm font-bold text-slate-800">${s.name}</p></div></div>
-          <span class="text-sm font-bold text-blue-700">₹${s.price}</span>
+          <span class="text-sm font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">₹${s.price}</span>
         </label>`;
   });
 
   const dateInput = document.getElementById('book-date');
-  
-  // Create perfect local dates to prevent timezone drift
   const today = new Date();
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, '0');
-  const dd = String(today.getDate()).padStart(2, '0');
-  const todayStr = `${yyyy}-${mm}-${dd}`;
-  
   const maxDate = new Date();
-  maxDate.setDate(maxDate.getDate() + 5); 
-  const m_yyyy = maxDate.getFullYear();
-  const m_mm = String(maxDate.getMonth() + 1).padStart(2, '0');
-  const m_dd = String(maxDate.getDate()).padStart(2, '0');
-  const maxStr = `${m_yyyy}-${m_mm}-${m_dd}`;
+  maxDate.setDate(today.getDate() + 5); 
+  
+  // Safe formatting without timezone drift
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const maxStr = `${maxDate.getFullYear()}-${String(maxDate.getMonth()+1).padStart(2,'0')}-${String(maxDate.getDate()).padStart(2,'0')}`;
   
   dateInput.min = todayStr;
   dateInput.max = maxStr;
@@ -103,7 +103,8 @@ function openProfile(shopId) {
 }
 
 function closeProfile() {
-  document.getElementById('profile-modal').classList.replace('flex', 'hidden');
+  document.getElementById('profile-modal').classList.remove('flex');
+  document.getElementById('profile-modal').classList.add('hidden');
   selectedSlotTime = null; selectedService = null;
   if(selectedShop && shopMarkers[selectedShop._id]) shopMarkers[selectedShop._id].setIcon(blueIcon);
 }
@@ -117,18 +118,13 @@ async function loadSlots() {
     
     selectedSlotTime = null; checkBookingBtn();
     
-    const res = await fetch(`/api/shops/${selectedShop._id}/slots?date=${date}`);
-    const data = await res.json();
-    
-    const grid = document.getElementById('slot-grid');
-    grid.innerHTML = '';
-    
-    // PERFECT HOLIDAY LOGIC: Disables everything if closed
-    if(data.isClosed) {
+    // Front-end immediate Holiday Check mapping
+    const isHoliday = selectedShop.closedDates && selectedShop.closedDates.includes(date);
+    if(isHoliday || !selectedShop.isOpenToday) {
         document.getElementById('closed-overlay').classList.replace('hidden','flex');
         document.getElementById('slot-total-tokens').innerText = "0";
         document.getElementById('slot-avail-tokens').innerText = "0";
-        // Also strictly disable inputs
+        document.getElementById('slot-grid').innerHTML = '<p class="text-xs text-red-500 col-span-3 text-center py-4 font-bold">Booking disabled for this date.</p>';
         document.getElementById('cust-name').disabled = true;
         document.getElementById('cust-phone').disabled = true;
         document.getElementById('book-btn').disabled = true;
@@ -137,6 +133,18 @@ async function loadSlots() {
         document.getElementById('closed-overlay').classList.replace('flex','hidden');
         document.getElementById('cust-name').disabled = false;
         document.getElementById('cust-phone').disabled = false;
+    }
+
+    const res = await fetch(`/api/shops/${selectedShop._id}/slots?date=${date}`);
+    const data = await res.json();
+    
+    const grid = document.getElementById('slot-grid');
+    grid.innerHTML = '';
+    
+    // Security check from backend response
+    if(data.isClosed) {
+        document.getElementById('closed-overlay').classList.replace('hidden','flex');
+        return;
     }
     
     let totalCap = 0, availCap = 0;
@@ -164,9 +172,9 @@ async function loadSlots() {
         if(data.bookings.length === 0) dashList.innerHTML = '<p class="text-xs text-slate-400">No bookings for this date.</p>';
         data.bookings.forEach(b => {
             dashList.insertAdjacentHTML('beforeend', `
-              <div class="bg-slate-700 p-2 rounded flex justify-between text-xs border border-slate-600 mb-2">
-                 <div><p class="font-bold text-amber-400">${b.tokenNumber}</p><p class="text-white font-bold">${b.timeSlot}</p></div>
-                 <div class="text-right"><p class="text-slate-300 font-bold">${b.customerName}</p><p class="text-slate-400">${b.customerPhone}</p></div>
+              <div class="bg-slate-700 p-3 rounded-lg flex justify-between text-xs border border-slate-600 mb-2 shadow-md">
+                 <div><p class="font-black text-amber-400 text-sm">${b.tokenNumber}</p><p class="text-white font-bold bg-slate-900 px-1 py-0.5 rounded mt-1 inline-block">${b.timeSlot}</p></div>
+                 <div class="text-right"><p class="text-amber-200 font-bold">${b.customerName}</p><p class="text-slate-300 font-medium">${b.customerPhone}</p><p class="text-slate-400 text-[10px] mt-1">${b.serviceName}</p></div>
               </div>`);
         });
     } else {
@@ -192,7 +200,7 @@ function loginAsOwner() {
 }
 
 function openFormModal(mode) {
-    document.getElementById('form-modal').classList.replace('hidden', 'flex');
+    document.getElementById('form-modal').classList.remove('hidden');
     document.getElementById('dynamic-services').innerHTML = ''; 
     formClosedDates = []; selectedPhotosToUpload = []; renderHolidays(); renderPhotoQueue();
     
@@ -215,7 +223,7 @@ function openFormModal(mode) {
         selectedShop.services.forEach(s => addServiceRow(s.name, s.price));
     }
 }
-function closeFormModal() { document.getElementById('form-modal').classList.replace('flex', 'hidden'); }
+function closeFormModal() { document.getElementById('form-modal').classList.add('hidden'); }
 
 // PERFECT HOLIDAY MANAGER (No Timezone Jumps)
 function addHolidayRange() {
@@ -247,7 +255,7 @@ function removeHoliday(dateVal) { formClosedDates = formClosedDates.filter(d => 
 function renderHolidays() {
     const list = document.getElementById('holiday-list'); list.innerHTML = '';
     formClosedDates.forEach(d => {
-        list.innerHTML += `<span class="bg-red-500/20 text-red-400 text-[10px] font-bold px-2 py-1 rounded flex items-center space-x-1"><span>${d}</span><button type="button" onclick="removeHoliday('${d}')" class="text-white ml-1 bg-red-600 rounded-full w-4 h-4 flex items-center justify-center">×</button></span>`;
+        list.innerHTML += `<span class="bg-red-500/20 text-red-400 text-[10px] font-bold px-2 py-1 rounded flex items-center space-x-1 shadow"><span>${d}</span><button type="button" onclick="removeHoliday('${d}')" class="text-white ml-1 bg-red-600 rounded-full w-4 h-4 flex items-center justify-center">×</button></span>`;
     });
 }
 
@@ -265,13 +273,13 @@ function renderPhotoQueue() {
     document.getElementById('photo-count-text').innerText = `${selectedPhotosToUpload.length}/5 added`;
     selectedPhotosToUpload.forEach((file, idx) => {
         const url = URL.createObjectURL(file);
-        list.innerHTML += `<div class="relative"><img src="${url}" class="w-12 h-12 rounded object-cover border border-slate-500"><button type="button" onclick="removePhotoFromQueue(${idx})" class="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] w-5 h-5 rounded-full font-bold">×</button></div>`;
+        list.innerHTML += `<div class="relative"><img src="${url}" class="w-12 h-12 rounded object-cover border border-slate-500 shadow"><button type="button" onclick="removePhotoFromQueue(${idx})" class="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] w-5 h-5 rounded-full font-bold shadow-lg">×</button></div>`;
     });
 }
 
 function addServiceRow(n='', p='') {
     const row = document.createElement('div'); row.className = "flex space-x-2 service-row";
-    row.innerHTML = `<input type="text" value="${n}" placeholder="Service" class="s-name w-1/2 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600"><input type="number" value="${p}" placeholder="₹" class="s-price w-1/4 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">`;
+    row.innerHTML = `<input type="text" value="${n}" placeholder="Service" class="s-name w-1/2 bg-slate-900 p-2.5 rounded text-xs text-white border border-slate-600"><input type="number" value="${p}" placeholder="₹" class="s-price w-1/4 bg-slate-900 p-2.5 rounded text-xs text-white border border-slate-600">`;
     document.getElementById('dynamic-services').appendChild(row);
 }
 function getCurrentLocationForReg() { navigator.geolocation.getCurrentPosition((pos) => { document.getElementById('reg-lat').value = pos.coords.latitude; document.getElementById('reg-lng').value = pos.coords.longitude; }); }
@@ -321,28 +329,68 @@ function confirmBooking() {
   socket.emit('book_appointment', { shopId: selectedShop._id, customerName: name, customerPhone: phone, serviceName: selectedService.name, bookingDate: date, timeSlot: selectedSlotTime });
 }
 
-// FAST 2KB IMAGE EXPORT & CLOSE BUTTON FIX
+// ----------------------------------------------------
+// FIX 2: ULTRA FAST CUSTOM NATIVE CANVAS IMAGE EXPORT 
+// (Takes 0 seconds, 0 external libraries, < 20KB Size)
+// ----------------------------------------------------
 function downloadTokenImage() {
     const btn = document.getElementById('img-download-btn');
-    btn.innerText = "Saving...";
-    const slip = document.getElementById('printable-slip');
+    btn.innerText = "Saving Fast...";
     
-    // Scale 1.5 keeps it sharp but lightweight (less KB)
-    html2canvas(slip, { scale: 1.5, backgroundColor: "#eff6ff", useCORS: true }).then(canvas => {
-        let link = document.createElement('a');
-        link.download = `BarberQ_Token_${Math.floor(Math.random()*1000)}.jpg`;
-        // Quality 0.7 aggressively compresses to a few bytes
-        link.href = canvas.toDataURL("image/jpeg", 0.7);
-        link.click();
-        btn.innerText = "Save to Gallery";
-    }).catch(err => {
-        alert("Download failed. Please try again.");
-        btn.innerText = "Save to Gallery";
-    });
+    // Create a virtual Canvas in memory
+    const canvas = document.createElement('canvas');
+    canvas.width = 400; canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+    
+    // Background 
+    ctx.fillStyle = '#eff6ff'; // Light Blue background
+    ctx.fillRect(0, 0, 400, 360);
+    
+    // Text Formatting
+    ctx.textAlign = 'center';
+    
+    ctx.fillStyle = '#64748b'; ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('BARBERQ E-TOKEN', 200, 30);
+    
+    ctx.fillStyle = '#1e293b'; ctx.font = 'bold 22px sans-serif';
+    ctx.fillText(document.getElementById('display-shop-name').innerText, 200, 70);
+    
+    ctx.fillStyle = '#475569'; ctx.font = '12px sans-serif';
+    let addr = document.getElementById('display-shop-address').innerText;
+    if(addr.length > 50) addr = addr.substring(0, 50) + "..."; // Avoid overflow
+    ctx.fillText(addr, 200, 95);
+    ctx.fillText(document.getElementById('display-shop-phone').innerText, 200, 115);
+    
+    // Separator line
+    ctx.beginPath(); ctx.moveTo(50, 140); ctx.lineTo(350, 140); ctx.strokeStyle = '#cbd5e1'; ctx.stroke();
+    
+    ctx.fillStyle = '#64748b'; ctx.font = 'bold 14px sans-serif';
+    ctx.fillText('Token Number', 200, 175);
+    
+    ctx.fillStyle = '#1e3a8a'; ctx.font = '900 40px sans-serif';
+    ctx.fillText(document.getElementById('display-token').innerText, 200, 220);
+    
+    ctx.fillStyle = '#64748b'; ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('Customer Name', 200, 260);
+    ctx.fillStyle = '#334155'; ctx.font = 'bold 18px sans-serif';
+    ctx.fillText(document.getElementById('display-cust-name').innerText, 200, 280);
+    
+    ctx.fillStyle = '#0f172a'; ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(document.getElementById('display-time').innerText, 200, 320);
+
+    // Compress & Download Instantly
+    let link = document.createElement('a');
+    link.download = `BarberQ_Token_${Math.floor(Math.random()*10000)}.jpg`;
+    link.href = canvas.toDataURL("image/jpeg", 0.6); // Extra small file size
+    link.click();
+    
+    btn.innerText = "Save to Gallery";
 }
 
+// CLOSE BUTTON FIX
 function closeTokenModal() {
-    document.getElementById('token-modal').classList.replace('flex','hidden');
+    document.getElementById('token-modal').classList.add('hidden');
+    document.getElementById('token-modal').classList.remove('flex');
 }
 
 socket.on('booking_error', (data) => {
@@ -360,7 +408,8 @@ socket.on('booking_confirmed', (data) => {
   document.getElementById('display-token').innerText = data.tokenNumber;
   document.getElementById('display-time').innerText = data.appointmentTime;
   
-  document.getElementById('token-modal').classList.replace('hidden', 'flex');
+  document.getElementById('token-modal').classList.remove('hidden');
+  document.getElementById('token-modal').classList.add('flex');
   loadSlots(); 
 });
 
