@@ -109,7 +109,7 @@ app.get('/api/shops/:id/slots', async (req, res) => {
         const shop = await Shop.findById(req.params.id);
         if (!shop) return res.status(404).json({ error: "Shop not found" });
 
-        // Backend blocks returning slots if date is explicitly marked closed
+        // PERFECT HOLIDAY BLOCK: Return zero slots if date is in closedDates
         if (shop.closedDates && shop.closedDates.includes(dateStr)) {
             return res.json({ slots: [], bookings: [], isClosed: true });
         }
@@ -228,9 +228,9 @@ io.on('connection', (socket) => {
     try {
         const shop = await Shop.findById(shopId);
         if (shop) {
-          // Backend Guard: Strict check to block bookings on closed dates
+          // Double Guard check to prevent backend creation if date is closed
           if (shop.closedDates && shop.closedDates.includes(bookingDate)) {
-              return socket.emit('booking_error', { message: "Booking closed for this date." });
+              return socket.emit('booking_error', { message: "Booking is disabled for this date." });
           }
 
           const expireDate = new Date(bookingDate);

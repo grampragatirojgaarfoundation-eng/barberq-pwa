@@ -100,9 +100,6 @@ function closeProfile() {
 function openLightbox(src) { document.getElementById('lightbox-img').src = src; document.getElementById('lightbox-modal').classList.replace('hidden', 'flex'); }
 function closeLightbox() { document.getElementById('lightbox-modal').classList.replace('flex', 'hidden'); }
 
-// ==========================================
-// UIDAI SLOT LOGIC & DASHBOARD
-// ==========================================
 async function loadSlots() {
     const date = document.getElementById('book-date').value;
     if(!date) return;
@@ -115,6 +112,7 @@ async function loadSlots() {
     const grid = document.getElementById('slot-grid');
     grid.innerHTML = '';
     
+    // Holiday check directly affects UI mapping 
     if(data.isClosed) {
         document.getElementById('closed-overlay').classList.replace('hidden','flex');
         document.getElementById('slot-total-tokens').innerText = "0";
@@ -171,9 +169,6 @@ function checkBookingBtn() {
     if(selectedSlotTime && selectedService) btn.disabled = false; else btn.disabled = true;
 }
 
-// ==========================================
-// FORM, HOLIDAYS & 5-PHOTO QUEUE LOGIC
-// ==========================================
 function loginAsOwner() {
     const p = prompt("Enter your registered Shop Mobile Number:");
     if(p) { localStorage.setItem('barberq_owner_phone', p); ownerPhone = p; alert("Owner mode activated!"); location.reload(); }
@@ -205,7 +200,6 @@ function openFormModal(mode) {
 }
 function closeFormModal() { document.getElementById('form-modal').classList.replace('flex', 'hidden'); }
 
-// FIX 3: Robust Javascript Timezone-Proof Date Looping
 function addHolidayRange() {
     let startStr = document.getElementById('holiday-start').value;
     let endStr = document.getElementById('holiday-end').value;
@@ -264,7 +258,6 @@ function addServiceRow(n='', p='') {
 }
 function getCurrentLocationForReg() { navigator.geolocation.getCurrentPosition((pos) => { document.getElementById('reg-lat').value = pos.coords.latitude; document.getElementById('reg-lng').value = pos.coords.longitude; }); }
 
-// FIX 1: Robust Edit Update Function
 async function submitForm() {
   const shopId = document.getElementById('form-shopId').value, isEdit = shopId !== "";
   
@@ -302,7 +295,6 @@ async function submitForm() {
   finally { btn.innerText = "Save Profile"; btn.disabled = false; }
 }
 
-// Booking System
 function confirmBooking() {
   const name = document.getElementById('cust-name').value, phone = document.getElementById('cust-phone').value;
   const date = document.getElementById('book-date').value;
@@ -312,28 +304,25 @@ function confirmBooking() {
   socket.emit('book_appointment', { shopId: selectedShop._id, customerName: name, customerPhone: phone, serviceName: selectedService.name, bookingDate: date, timeSlot: selectedSlotTime });
 }
 
-// FIX 4: PDF DOWNLOAD FUNCTION & MODAL CLOSE FUNCTION
-function downloadTokenPDF() {
-    const btn = document.getElementById('pdf-download-btn');
-    btn.innerText = "Preparing PDF...";
+// FIX 1: DOWNLOAD AS IMAGE (.jpg) INSTANTLY WITH HTML2CANVAS
+function downloadTokenImage() {
+    const btn = document.getElementById('img-download-btn');
+    btn.innerText = "Saving...";
+    const slip = document.getElementById('printable-slip');
     
-    const element = document.getElementById('printable-slip');
-    const opt = {
-        margin:       0.5,
-        filename:     `BarberQ_Token_${Math.floor(Math.random()*1000)}.pdf`,
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2 },
-        jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
-    };
-    html2pdf().set(opt).from(element).save().then(() => {
-        btn.innerText = "Download PDF";
+    html2canvas(slip, { scale: 3 }).then(canvas => {
+        let link = document.createElement('a');
+        link.download = `BarberQ_Token_${Math.floor(Math.random()*10000)}.jpg`;
+        link.href = canvas.toDataURL("image/jpeg", 0.9);
+        link.click();
+        btn.innerText = "Download Slip";
     }).catch(err => {
-        alert("PDF Generation Failed, trying alternative print.");
-        window.print();
-        btn.innerText = "Download PDF";
+        alert("Download failed. Please try again.");
+        btn.innerText = "Download Slip";
     });
 }
 
+// CLOSE BUTTON FIX
 function closeTokenModal() {
     document.getElementById('token-modal').classList.replace('flex','hidden');
 }
@@ -349,7 +338,7 @@ socket.on('booking_confirmed', (data) => {
   document.getElementById('display-shop-name').innerText = data.shopName;
   document.getElementById('display-shop-address').innerText = data.shopAddress;
   document.getElementById('display-shop-phone').innerText = "📞 Contact: " + data.shopPhone;
-  document.getElementById('display-cust-name').innerText = data.customerName; // Naya Added
+  document.getElementById('display-cust-name').innerText = data.customerName; 
   document.getElementById('display-token').innerText = data.tokenNumber;
   document.getElementById('display-time').innerText = data.appointmentTime;
   
