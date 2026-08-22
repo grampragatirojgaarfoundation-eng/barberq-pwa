@@ -11,14 +11,14 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    /* Horizontal scroll for gallery */
     .hide-scrollbar::-webkit-scrollbar { display: none; }
     .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .uidai-slot { transition: all 0.2s ease; }
+    .uidai-slot.selected { background-color: #0369a1; color: white; border-color: #0369a1; }
   </style>
 </head>
 <body class="bg-slate-900 text-white min-h-screen flex flex-col font-sans">
 
-  <!-- Header -->
   <header class="bg-slate-800 p-4 sticky top-0 z-40 shadow-md flex justify-between items-center border-b border-slate-700">
     <h1 class="text-xl font-bold text-amber-400">✂️ BarberQ</h1>
     <div class="flex space-x-2">
@@ -27,7 +27,6 @@
     </div>
   </header>
 
-  <!-- Main Map & List -->
   <main class="flex-1 p-4 max-w-2xl mx-auto w-full space-y-4">
     <div id="map" class="h-56 w-full rounded-xl border border-slate-700 z-0"></div>
     <h2 class="text-lg font-bold text-slate-200 border-b border-slate-700 pb-2">Salons near you</h2>
@@ -36,120 +35,122 @@
 
   <!-- 1. FULL SCREEN PROFILE MODAL -->
   <div id="profile-modal" class="fixed inset-0 bg-slate-900 z-50 hidden flex-col overflow-y-auto">
-    <!-- Close & Action Bar -->
     <div class="sticky top-0 bg-slate-800/90 backdrop-blur p-4 flex justify-between items-center border-b border-slate-700 z-10">
       <button onclick="closeProfile()" class="text-white bg-slate-700 px-3 py-1 rounded-full text-sm font-bold">← Back</button>
       <div id="owner-actions" class="hidden space-x-2">
-        <button onclick="openFormModal('edit')" class="bg-blue-500 text-white text-xs px-3 py-1.5 rounded font-bold">Edit Profile</button>
+        <button onclick="openFormModal('edit')" class="bg-blue-500 text-white text-xs px-3 py-1.5 rounded font-bold">Edit Settings</button>
       </div>
     </div>
 
     <div class="p-4 space-y-6 max-w-2xl mx-auto w-full pb-20">
-      <!-- Top Details -->
       <div>
         <h2 id="prof-name" class="text-3xl font-black text-amber-400 leading-tight"></h2>
         <p id="prof-address" class="text-sm text-slate-400 mt-1">📍 </p>
-        <div class="flex items-center space-x-3 mt-3">
-          <span id="prof-status" class="px-3 py-1 rounded-full text-xs font-bold"></span>
-          <span class="text-sm text-slate-300">⏰ <span id="prof-timing"></span></span>
-        </div>
       </div>
 
-      <!-- Photo Gallery (Horizontal Scroll) -->
-      <div>
-        <h3 class="text-sm font-bold text-slate-300 mb-2">Photos</h3>
-        <div id="prof-gallery" class="flex space-x-3 overflow-x-auto hide-scrollbar pb-2 snap-x">
-          <!-- Photos injected here -->
-        </div>
-      </div>
+      <div id="prof-gallery" class="flex space-x-3 overflow-x-auto hide-scrollbar pb-2 snap-x"></div>
 
-      <!-- Live Booking Section Inside Profile -->
-      <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700">
-        <h3 class="text-lg font-bold text-amber-400 mb-4">Book Appointment</h3>
+      <!-- UIDAI STYLE BOOKING UI -->
+      <div class="bg-slate-100 p-5 rounded-2xl border border-slate-300 text-slate-900 shadow-xl relative">
+        <!-- Overlay if closed -->
+        <div id="closed-overlay" class="absolute inset-0 bg-white/80 backdrop-blur-sm z-20 hidden items-center justify-center rounded-2xl">
+            <h2 class="text-2xl font-black text-red-600 border-4 border-red-600 p-3 rounded-lg transform -rotate-12">SHOP CLOSED</h2>
+        </div>
+
+        <h3 class="text-lg font-bold text-blue-900 mb-2 border-b border-blue-200 pb-2">Book Appointment (Token)</h3>
         
-        <div class="flex justify-between bg-slate-900 p-3 rounded-lg border border-slate-700 mb-4">
-          <div><p class="text-xs text-slate-400">Live Queue</p><p id="prof-queue" class="font-bold text-lg">0</p></div>
-          <div class="text-right"><p class="text-xs text-slate-400">Est. Waiting</p><p id="prof-wait" class="font-bold text-amber-400 text-lg">0 mins</p></div>
+        <label class="block text-xs font-bold text-slate-500 mb-1">Select Date</label>
+        <input type="date" id="book-date" class="w-full bg-white border-2 border-blue-300 p-2.5 rounded-lg text-slate-900 mb-4 font-bold outline-none focus:border-blue-600" onchange="loadSlots()">
+
+        <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
+           <div class="flex justify-between text-xs font-bold text-blue-800 mb-3 px-1">
+              <span>Total Tokens: <span id="slot-total-tokens">0</span></span>
+              <span>Total Available: <span id="slot-avail-tokens">0</span></span>
+           </div>
+           
+           <!-- GRID FOR TIME SLOTS (Like Aadhaar Seva Kendra) -->
+           <div id="slot-grid" class="grid grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
+              <p class="text-xs text-center col-span-3 text-slate-400 py-4">Select a date to view slots.</p>
+           </div>
         </div>
 
-        <div id="prof-services" class="space-y-2 mb-4 max-h-48 overflow-y-auto pr-1"></div>
-
-        <input type="text" id="cust-name" placeholder="Your Name" class="w-full bg-slate-900 border border-slate-700 p-3 rounded-lg text-sm text-white mb-2">
-        <input type="tel" id="cust-phone" placeholder="Mobile Number" class="w-full bg-slate-900 border border-slate-700 p-3 rounded-lg text-sm text-white mb-4">
-
-        <button id="book-btn" onclick="confirmBooking()" class="w-full bg-amber-500 hover:bg-amber-600 font-bold py-3 text-slate-900 rounded-xl transition shadow-lg">
-          Get Live Token
-        </button>
+        <div class="mt-4 space-y-2">
+            <div id="prof-services" class="space-y-2 max-h-32 overflow-y-auto p-1 bg-white border border-slate-200 rounded-lg shadow-inner"></div>
+            <input type="text" id="cust-name" placeholder="Your Name" class="w-full border-2 border-slate-300 p-2.5 rounded-lg text-sm text-slate-900">
+            <input type="tel" id="cust-phone" placeholder="Mobile Number" class="w-full border-2 border-slate-300 p-2.5 rounded-lg text-sm text-slate-900">
+            <button id="book-btn" onclick="confirmBooking()" class="w-full bg-blue-700 hover:bg-blue-800 font-bold py-3 text-white rounded-xl shadow-lg mt-2 transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+              Confirm Appointment
+            </button>
+        </div>
       </div>
 
-      <!-- Owner Info -->
-      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 flex items-center justify-between">
-        <div>
-          <p class="text-xs text-slate-400">Owner / Contact</p>
-          <p id="prof-owner" class="font-bold text-white"></p>
-        </div>
-        <a id="prof-call" href="#" class="bg-green-500 text-white p-3 rounded-full shadow-lg shadow-green-500/30">📞 Call</a>
+      <!-- OWNER LIVE DASHBOARD (Hidden for normal users) -->
+      <div id="owner-dashboard" class="hidden bg-slate-800 p-4 rounded-xl border border-amber-500/50 mt-4">
+        <h3 class="text-amber-400 font-bold text-sm mb-2">👑 Live Bookings for Selected Date</h3>
+        <div id="owner-bookings-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
       </div>
     </div>
   </div>
 
-  <!-- 2. LIGHTBOX ZOOM MODAL -->
+  <!-- LIGHTBOX & TOKEN MODAL -->
   <div id="lightbox-modal" class="fixed inset-0 bg-black/95 z-[100] hidden items-center justify-center p-2 flex-col">
     <button onclick="closeLightbox()" class="absolute top-5 right-5 text-white text-3xl font-bold p-2">&times;</button>
     <img id="lightbox-img" src="" class="max-w-full max-h-[85vh] object-contain rounded transition-transform duration-300">
   </div>
 
-  <!-- 3. TOKEN SUCCESS MODAL (UIDAI Slip) -->
   <div id="token-modal" class="fixed inset-0 bg-black/90 hidden items-center justify-center p-4 z-[60]">
-    <div class="bg-white p-6 rounded-2xl max-w-sm w-full text-center space-y-4">
+    <div class="bg-white p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">
       <h2 class="text-2xl font-bold text-green-600">Booking Confirmed!</h2>
-      <div class="bg-gray-100 p-4 rounded-xl border-2 border-dashed border-gray-300">
-        <p class="text-sm text-gray-500">Your Token Number</p>
-        <p id="display-token" class="text-3xl font-black text-black tracking-widest my-2"></p>
-        <p class="text-sm text-gray-500">Appointment Time</p>
-        <p id="display-time" class="text-xl font-bold text-blue-600"></p>
+      <div class="bg-blue-50 p-4 rounded-xl border-2 border-dashed border-blue-300">
+        <p class="text-sm text-slate-500 font-bold">Your Token Number</p>
+        <p id="display-token" class="text-3xl font-black text-blue-900 tracking-widest my-2"></p>
+        <p class="text-sm text-slate-500 font-bold">Appointment Date & Time</p>
+        <p id="display-time" class="text-lg font-bold text-slate-800"></p>
       </div>
-      <button onclick="document.getElementById('token-modal').classList.replace('flex','hidden')" class="w-full bg-slate-900 text-white font-bold py-3 rounded-lg">Close</button>
+      <button onclick="document.getElementById('token-modal').classList.replace('flex','hidden')" class="w-full bg-slate-900 text-white font-bold py-3 rounded-lg">Close Slip</button>
     </div>
   </div>
 
-  <!-- 4. ADD / EDIT SALON FORM MODAL -->
+  <!-- ADD / EDIT SALON FORM -->
   <div id="form-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-4 z-[70] overflow-y-auto py-10">
     <div class="bg-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4 border border-slate-700 relative">
       <button onclick="closeFormModal()" class="absolute top-3 right-3 text-slate-400 text-xl">&times;</button>
-      <h3 id="form-title" class="text-lg font-bold text-amber-400">List/Edit Salon</h3>
+      <h3 id="form-title" class="text-lg font-bold text-amber-400">Salon Setup</h3>
       
       <div class="space-y-3">
         <input type="hidden" id="form-shopId">
-        <input type="text" id="reg-name" placeholder="Salon Name" class="w-full bg-slate-900 border p-2.5 rounded text-sm text-white">
-        <input type="text" id="reg-owner" placeholder="Owner Name" class="w-full bg-slate-900 border p-2.5 rounded text-sm text-white">
-        <input type="text" id="reg-phone" placeholder="Registered Phone" class="w-full bg-slate-900 border p-2.5 rounded text-sm text-white">
-        <input type="text" id="reg-address" placeholder="Full Address" class="w-full bg-slate-900 border p-2.5 rounded text-sm text-white">
+        <input type="text" id="reg-name" placeholder="Salon Name" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-sm text-white">
+        <input type="text" id="reg-owner" placeholder="Owner Name" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-sm text-white">
+        <input type="text" id="reg-phone" placeholder="Registered Phone" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-sm text-white">
+        <input type="text" id="reg-address" placeholder="Full Address" class="w-full bg-slate-900 border border-slate-600 p-2.5 rounded text-sm text-white">
         
         <div class="flex space-x-2">
-          <input type="text" id="reg-open" placeholder="Open (e.g. 09:00 AM)" class="w-1/2 bg-slate-900 border p-2 rounded text-sm">
-          <input type="text" id="reg-close" placeholder="Close (e.g. 09:00 PM)" class="w-1/2 bg-slate-900 border p-2 rounded text-sm">
+          <div class="w-1/2"><label class="text-[10px] text-slate-400">Open Time</label><input type="time" id="reg-open" class="w-full bg-slate-900 border border-slate-600 p-2 rounded text-sm text-white"></div>
+          <div class="w-1/2"><label class="text-[10px] text-slate-400">Close Time</label><input type="time" id="reg-close" class="w-full bg-slate-900 border border-slate-600 p-2 rounded text-sm text-white"></div>
         </div>
         
-        <!-- Today's Status Checkbox (For Edit mode) -->
+        <div class="flex space-x-2">
+          <div class="w-1/2"><label class="text-[10px] text-slate-400">Slot Duration (Mins)</label><input type="number" id="reg-dur" value="30" class="w-full bg-slate-900 border border-slate-600 p-2 rounded text-sm text-white"></div>
+          <div class="w-1/2"><label class="text-[10px] text-slate-400">Capacity/Chairs per slot</label><input type="number" id="reg-chair" value="1" class="w-full bg-slate-900 border border-slate-600 p-2 rounded text-sm text-white"></div>
+        </div>
+
         <label id="status-toggle-container" class="hidden items-center space-x-2 text-sm text-white">
-            <input type="checkbox" id="reg-status" class="w-4 h-4 accent-amber-500">
-            <span>Is Shop Open Today?</span>
+            <input type="checkbox" id="reg-status" class="w-4 h-4 accent-amber-500"><span>Is Shop Open Today?</span>
         </label>
 
         <div class="flex space-x-2">
-          <input type="number" step="any" id="reg-lat" placeholder="Latitude" class="w-1/2 bg-slate-900 border p-2 rounded text-sm">
-          <input type="number" step="any" id="reg-lng" placeholder="Longitude" class="w-1/2 bg-slate-900 border p-2 rounded text-sm">
+          <input type="number" step="any" id="reg-lat" placeholder="Latitude" class="w-1/2 bg-slate-900 border border-slate-600 p-2 rounded text-sm">
+          <input type="number" step="any" id="reg-lng" placeholder="Longitude" class="w-1/2 bg-slate-900 border border-slate-600 p-2 rounded text-sm">
           <button onclick="getCurrentLocationForReg()" class="bg-slate-700 px-3 rounded text-xs font-bold">Auto</button>
         </div>
 
-        <label class="block text-xs text-amber-400 font-bold">Upload New Photos (Max 5. Warning: Old photos will be deleted)</label>
-        <input type="file" id="reg-photos" multiple accept="image/*" class="w-full bg-slate-900 border p-2 rounded text-sm">
+        <label class="block text-[11px] text-amber-400 font-bold">Upload Photos (Max 5, Max 1MB Each)</label>
+        <input type="file" id="reg-photos" multiple accept="image/*" class="w-full bg-slate-900 border border-slate-600 p-2 rounded text-sm text-white" onchange="validateFiles(this)">
 
         <div class="bg-slate-900 p-3 rounded-lg border border-slate-700">
             <h4 class="text-sm font-bold text-amber-400 mb-2">Services</h4>
             <div id="dynamic-services" class="space-y-2"></div>
-            <button onclick="addServiceRow()" class="text-xs text-amber-400 mt-3 font-bold">+ Add Service</button>
+            <button onclick="addServiceRow()" class="text-xs text-amber-400 mt-2 font-bold">+ Add Service</button>
         </div>
       </div>
       
