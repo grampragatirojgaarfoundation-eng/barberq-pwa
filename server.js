@@ -56,7 +56,7 @@ const shopSchema = new mongoose.Schema({
     closingTime: { type: String, default: "21:00" },
     slotDuration: { type: Number, default: 30 }, 
     chairs: { type: Number, default: 1 }, 
-    closedDates: { type: [String], default: [] },
+    closedDates: { type: [String], default: [] }, // Format: ["2026-08-25", "2026-08-26"]
     
     isOpenToday: { type: Boolean, default: true },
     rating: { type: Number, default: 5.0 },
@@ -105,13 +105,13 @@ const minsToTime = (mins) => {
 // ==========================================
 app.get('/api/shops/:id/slots', async (req, res) => {
     try {
-        const dateStr = req.query.date; 
+        const dateStr = req.query.date; // Format expected: "YYYY-MM-DD"
         const shop = await Shop.findById(req.params.id);
         if (!shop) return res.status(404).json({ error: "Shop not found" });
 
-        // PERFECT HOLIDAY BLOCK: Return zero slots if date is in closedDates
+        // PERFECT HOLIDAY BLOCK: String matching for exact date
         if (shop.closedDates && shop.closedDates.includes(dateStr)) {
-            return res.json({ slots: [], bookings: [], isClosed: true });
+            return res.json({ slots: [], bookings: [], isClosed: true }); // Backend actively blocking
         }
 
         let startMins = timeToMins(shop.openingTime);
@@ -184,7 +184,6 @@ app.put('/api/shops/:id', upload.array('photos', 5), async (req, res) => {
         }
 
         shop.shopName = name; shop.ownerName = ownerName; shop.phone = phone; shop.address = address;
-        
         if(lat && lng) shop.location = { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] };
         
         shop.openingTime = openingTime || shop.openingTime; 
@@ -200,7 +199,6 @@ app.put('/api/shops/:id', upload.array('photos', 5), async (req, res) => {
         await shop.save();
         res.json({ success: true });
     } catch (err) { 
-        console.error(err);
         res.status(500).json({ error: "Update Failed on Server" }); 
     }
 });
@@ -228,11 +226,12 @@ io.on('connection', (socket) => {
     try {
         const shop = await Shop.findById(shopId);
         if (shop) {
-          // Double Guard check to prevent backend creation if date is closed
+          // STRICT GUARD: Server check for closed dates.
           if (shop.closedDates && shop.closedDates.includes(bookingDate)) {
-              return socket.emit('booking_error', { message: "Booking is disabled for this date." });
+              return socket.emit('booking_error', { message: "Booking is disabled for this date. The shop is closed." });
           }
 
+          // Expire exactly next day 2 AM to ensure full day visibility for owner
           const expireDate = new Date(bookingDate);
           expireDate.setDate(expireDate.getDate() + 1); 
           expireDate.setHours(2, 0, 0, 0); 

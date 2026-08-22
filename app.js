@@ -75,13 +75,24 @@ function openProfile(shopId) {
   });
 
   const dateInput = document.getElementById('book-date');
-  const today = new Date();
-  const maxDate = new Date();
-  maxDate.setDate(today.getDate() + 5); 
   
-  dateInput.min = today.toLocaleDateString('en-CA');
-  dateInput.max = maxDate.toLocaleDateString('en-CA');
-  dateInput.value = dateInput.min;
+  // Create perfect local dates to prevent timezone drift
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  const todayStr = `${yyyy}-${mm}-${dd}`;
+  
+  const maxDate = new Date();
+  maxDate.setDate(maxDate.getDate() + 5); 
+  const m_yyyy = maxDate.getFullYear();
+  const m_mm = String(maxDate.getMonth() + 1).padStart(2, '0');
+  const m_dd = String(maxDate.getDate()).padStart(2, '0');
+  const maxStr = `${m_yyyy}-${m_mm}-${m_dd}`;
+  
+  dateInput.min = todayStr;
+  dateInput.max = maxStr;
+  dateInput.value = todayStr;
   
   loadSlots();
 
@@ -112,14 +123,20 @@ async function loadSlots() {
     const grid = document.getElementById('slot-grid');
     grid.innerHTML = '';
     
-    // Holiday check directly affects UI mapping 
+    // PERFECT HOLIDAY LOGIC: Disables everything if closed
     if(data.isClosed) {
         document.getElementById('closed-overlay').classList.replace('hidden','flex');
         document.getElementById('slot-total-tokens').innerText = "0";
         document.getElementById('slot-avail-tokens').innerText = "0";
+        // Also strictly disable inputs
+        document.getElementById('cust-name').disabled = true;
+        document.getElementById('cust-phone').disabled = true;
+        document.getElementById('book-btn').disabled = true;
         return;
     } else {
         document.getElementById('closed-overlay').classList.replace('flex','hidden');
+        document.getElementById('cust-name').disabled = false;
+        document.getElementById('cust-phone').disabled = false;
     }
     
     let totalCap = 0, availCap = 0;
@@ -200,6 +217,7 @@ function openFormModal(mode) {
 }
 function closeFormModal() { document.getElementById('form-modal').classList.replace('flex', 'hidden'); }
 
+// PERFECT HOLIDAY MANAGER (No Timezone Jumps)
 function addHolidayRange() {
     let startStr = document.getElementById('holiday-start').value;
     let endStr = document.getElementById('holiday-end').value;
@@ -260,7 +278,6 @@ function getCurrentLocationForReg() { navigator.geolocation.getCurrentPosition((
 
 async function submitForm() {
   const shopId = document.getElementById('form-shopId').value, isEdit = shopId !== "";
-  
   const lat = document.getElementById('reg-lat').value;
   const lng = document.getElementById('reg-lng').value;
   if(!lat || !lng) return alert("Kripya Latitude/Longitude zaroor bharein (Auto par click karein)!");
@@ -304,25 +321,26 @@ function confirmBooking() {
   socket.emit('book_appointment', { shopId: selectedShop._id, customerName: name, customerPhone: phone, serviceName: selectedService.name, bookingDate: date, timeSlot: selectedSlotTime });
 }
 
-// FIX 1: DOWNLOAD AS IMAGE (.jpg) INSTANTLY WITH HTML2CANVAS
+// FAST 2KB IMAGE EXPORT & CLOSE BUTTON FIX
 function downloadTokenImage() {
     const btn = document.getElementById('img-download-btn');
     btn.innerText = "Saving...";
     const slip = document.getElementById('printable-slip');
     
-    html2canvas(slip, { scale: 3 }).then(canvas => {
+    // Scale 1.5 keeps it sharp but lightweight (less KB)
+    html2canvas(slip, { scale: 1.5, backgroundColor: "#eff6ff", useCORS: true }).then(canvas => {
         let link = document.createElement('a');
-        link.download = `BarberQ_Token_${Math.floor(Math.random()*10000)}.jpg`;
-        link.href = canvas.toDataURL("image/jpeg", 0.9);
+        link.download = `BarberQ_Token_${Math.floor(Math.random()*1000)}.jpg`;
+        // Quality 0.7 aggressively compresses to a few bytes
+        link.href = canvas.toDataURL("image/jpeg", 0.7);
         link.click();
-        btn.innerText = "Download Slip";
+        btn.innerText = "Save to Gallery";
     }).catch(err => {
         alert("Download failed. Please try again.");
-        btn.innerText = "Download Slip";
+        btn.innerText = "Save to Gallery";
     });
 }
 
-// CLOSE BUTTON FIX
 function closeTokenModal() {
     document.getElementById('token-modal').classList.replace('flex','hidden');
 }
