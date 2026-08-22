@@ -2,277 +2,291 @@ const socket = io();
 let userLat = 28.6139;
 let userLng = 77.2090;
 let map, userMarker;
+let allShops = [];
 let selectedShop = null;
 let selectedService = null;
+let shopMarkers = {}; // Markers ko track karne ke liye
+let ownerPhone = localStorage.getItem('barberq_owner_phone') || null;
 
-// Initialize Leaflet Map
+// Red & Blue Leaflet Icons
+const redIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34]
+});
+const blueIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34]
+});
+
 function initMap() {
   map = L.map('map').setView([userLat, userLng], 13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19
-  }).addTo(map);
-  userMarker = L.marker([userLat, userLng]).addTo(map).bindPopup("Aap yahan hain!").openPopup();
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  userMarker = L.marker([userLat, userLng], {icon: redIcon}).addTo(map).bindPopup("You");
 }
 
-// Get Geolocation
 function getUserLocation() {
   if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        userLat = pos.coords.latitude;
-        userLng = pos.coords.longitude;
-        document.getElementById('location-text').innerText = `${userLat.toFixed(3)}, ${userLng.toFixed(3)}`;
-        if (map) {
-          map.setView([userLat, userLng], 14);
-          userMarker.setLatLng([userLat, userLng]);
-        }
+    navigator.geolocation.getCurrentPosition((pos) => {
+        userLat = pos.coords.latitude; userLng = pos.coords.longitude;
+        if (map) { map.setView([userLat, userLng], 14); userMarker.setLatLng([userLat, userLng]); }
         fetchNearbyShops();
       },
-      () => {
-        document.getElementById('location-text').innerText = "Default (Delhi)";
-        fetchNearbyShops();
-      }
+      () => { fetchNearbyShops(); }
     );
   }
 }
 
-// Get Location Automatically for Registration Form
-function getCurrentLocationForReg() {
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition((pos) => {
-            document.getElementById('reg-lat').value = pos.coords.latitude;
-            document.getElementById('reg-lng').value = pos.coords.longitude;
-        });
-    } else {
-        alert("Location access denied ya support nahi karti.");
-    }
-}
-
-// Add Dynamic Service Row in Form
-function addServiceRow() {
-    const container = document.getElementById('dynamic-services');
-    const row = document.createElement('div');
-    row.className = "flex space-x-2 service-row";
-    row.innerHTML = `
-        <input type="text" placeholder="Service Name" class="s-name w-1/2 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">
-        <input type="number" placeholder="₹ Price" class="s-price w-1/4 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">
-        <input type="number" placeholder="Mins" class="s-dur w-1/4 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">
-    `;
-    container.appendChild(row);
-}
-
-// Fetch Nearby Shops from Backend API (Uses the new 50KM radius logic)
+// Map par click karne se Profile Khulegi
 async function fetchNearbyShops() {
   const res = await fetch(`/api/shops/nearby?lat=${userLat}&lng=${userLng}`);
-  const shops = await res.json();
-  
+  allShops = await res.json();
   const container = document.getElementById('shop-list');
   container.innerHTML = '';
 
-  if(shops.length === 0) {
-      container.innerHTML = '<p class="text-slate-400 text-sm text-center">Aas-paas koi salon nahi mila.</p>';
-      return;
-  }
+  // Clear old markers
+  Object.values(shopMarkers).forEach(m => map.removeLayer(m));
+  shopMarkers = {};
 
-  shops.forEach(shop => {
-    // Add Marker on Map
-    L.marker([shop.lat, shop.lng]).addTo(map).bindPopup(`<b>${shop.name}</b>`);
-
-    // Build services preview text (taaki bahar se hi rate list dikhe)
-    let servicesText = shop.services.map(s => s.name).join(', ');
-    if(servicesText.length > 30) servicesText = servicesText.substring(0, 30) + '...';
+  allShops.forEach(shop => {
+    // Add Blue Marker
+    const marker = L.marker([shop.location.coordinates[1], shop.location.coordinates[0]], {icon: blueIcon})
+      .addTo(map).bindPopup(`<b>${shop.shopName}</b><br>Click to open profile`);
     
-    // Render Cards
+    // Marker Click = Open Profile
+    marker.on('click', () => openProfile(shop._id));
+    shopMarkers[shop._id] = marker;
+
+    // List Card
     const card = document.createElement('div');
-    card.className = "bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col space-y-3";
+    card.className = "bg-slate-800 p-4 rounded-xl border border-slate-700 cursor-pointer hover:border-amber-500 transition flex space-x-3";
+    card.onclick = () => openProfile(shop._id);
+    
+    let badge = shop.isOpenToday ? `<span class="bg-green-500/20 text-green-400 px-2 py-0.5 rounded text-[10px] font-bold">OPEN</span>` 
+                                 : `<span class="bg-red-500/20 text-red-400 px-2 py-0.5 rounded text-[10px] font-bold">CLOSED</span>`;
+    
     card.innerHTML = `
-      <div class="flex space-x-3">
-        <img src="${shop.images[0]}" class="w-24 h-24 rounded-lg object-cover border border-slate-600">
+        <img src="${shop.photos[0] || ''}" class="w-20 h-20 rounded-lg object-cover">
         <div class="flex-1">
-          <h3 class="font-bold text-lg text-amber-400 leading-tight">${shop.name}</h3>
-          <p class="text-xs text-slate-400 mt-1">📍 ${shop.address} <br><span class="text-amber-500 font-semibold">(${shop.distanceKm} km away)</span></p>
-          <p class="text-xs text-slate-300 mt-1 font-medium">✂️ ${servicesText || 'No services listed'}</p>
-          <div class="flex items-center space-x-2 mt-2">
-            <span class="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded font-bold">★ ${shop.rating || 5.0}</span>
-            <span class="text-xs text-white bg-slate-700 px-2 py-0.5 rounded shadow">👥 Queue: ${shop.queue.length}</span>
+          <div class="flex justify-between items-start">
+             <h3 class="font-bold text-amber-400">${shop.shopName}</h3>
+             ${badge}
           </div>
-        </div>
-      </div>
-      <button onclick="openBookingModal('${shop.id}')" class="w-full bg-slate-700 hover:bg-amber-500 hover:text-slate-900 text-amber-400 text-sm font-bold py-2.5 rounded-lg border border-slate-600 transition">
-        Book Appointment & Get Token
-      </button>
-    `;
+          <p class="text-xs text-slate-400">📍 ${shop.distanceKm} km away</p>
+          <p class="text-xs text-slate-300 mt-1">👥 Queue: ${shop.queue.length}</p>
+        </div>`;
     container.appendChild(card);
   });
 }
 
-// Open Booking Modal
-async function openBookingModal(shopId) {
-  const res = await fetch(`/api/shops/nearby?lat=${userLat}&lng=${userLng}`);
-  const shops = await res.json();
-  selectedShop = shops.find(s => s.id === shopId);
-
+// ==========================================
+// NEW FEATURE: FULL PROFILE & MARKER COLOR
+// ==========================================
+function openProfile(shopId) {
+  selectedShop = allShops.find(s => s._id === shopId);
   socket.emit('join_shop', shopId);
 
-  document.getElementById('modal-shop-name').innerText = selectedShop.name;
-  document.getElementById('modal-queue-count').innerText = selectedShop.queue.length;
-  
-  const totalWait = selectedShop.queue.reduce((acc, curr) => acc + curr.duration, 0);
-  document.getElementById('modal-wait-time').innerText = `${totalWait} mins`;
+  // Sabhi markers ko wapas blue karo, sirf selected ko red karo
+  Object.keys(shopMarkers).forEach(id => {
+      shopMarkers[id].setIcon(id === shopId ? redIcon : blueIcon);
+  });
+  map.setView([selectedShop.location.coordinates[1], selectedShop.location.coordinates[0]], 15);
 
-  const serviceContainer = document.getElementById('services-list');
-  serviceContainer.innerHTML = '<p class="text-sm font-semibold text-slate-300">Select Service:</p>';
+  // Profile Details Bharna
+  document.getElementById('prof-name').innerText = selectedShop.shopName;
+  document.getElementById('prof-address').innerText = "📍 " + selectedShop.address;
+  document.getElementById('prof-timing').innerText = `${selectedShop.openingTime} - ${selectedShop.closingTime}`;
+  document.getElementById('prof-owner').innerText = selectedShop.ownerName;
+  document.getElementById('prof-call').href = `tel:${selectedShop.phone}`;
 
-  if(selectedShop.services && selectedShop.services.length > 0) {
-      selectedShop.services.forEach((s, idx) => {
-        serviceContainer.innerHTML += `
-          <label class="flex items-center justify-between bg-slate-900 p-3 rounded-lg border border-slate-700 cursor-pointer hover:border-amber-500 transition">
-            <div class="flex items-center space-x-3">
-              <input type="radio" name="service" value="${idx}" onchange="selectedService = selectedShop.services[${idx}]" class="accent-amber-500 w-4 h-4">
-              <div>
-                  <p class="text-sm font-bold text-white">${s.name}</p>
-                  <p class="text-xs text-slate-400">⏱️ ${s.duration} mins</p>
-              </div>
-            </div>
-            <span class="text-sm font-bold text-amber-400">₹${s.price}</span>
-          </label>
-        `;
-      });
+  const statusEl = document.getElementById('prof-status');
+  if(selectedShop.isOpenToday) {
+      statusEl.innerText = "OPEN NOW"; statusEl.className = "px-3 py-1 rounded-full text-xs font-bold bg-green-500 text-slate-900";
+      document.getElementById('book-btn').disabled = false;
+      document.getElementById('book-btn').innerText = "Get Live Token";
+      document.getElementById('book-btn').classList.replace('bg-slate-600', 'bg-amber-500');
   } else {
-      serviceContainer.innerHTML += `<p class="text-xs text-red-400">No services available</p>`;
+      statusEl.innerText = "SHOP CLOSED"; statusEl.className = "px-3 py-1 rounded-full text-xs font-bold bg-red-500 text-white";
+      document.getElementById('book-btn').disabled = true;
+      document.getElementById('book-btn').innerText = "Closed for Booking";
+      document.getElementById('book-btn').classList.replace('bg-amber-500', 'bg-slate-600');
   }
 
-  document.getElementById('booking-modal').classList.remove('hidden');
-  document.getElementById('booking-modal').classList.add('flex');
-}
-
-function closeBookingModal() {
-  document.getElementById('booking-modal').classList.add('hidden');
-  document.getElementById('booking-modal').classList.remove('flex');
-}
-
-function toggleRegisterModal() {
-  const modal = document.getElementById('register-modal');
-  modal.classList.toggle('hidden');
-  modal.classList.toggle('flex');
-}
-
-function closeTokenModal() {
-    document.getElementById('token-modal').classList.add('hidden');
-    document.getElementById('token-modal').classList.remove('flex');
-}
-
-// Submit Registration (Advanced: Photos + Multiple Services Array)
-async function submitRegisterShop() {
-  const name = document.getElementById('reg-name').value;
-  const owner = document.getElementById('reg-owner').value;
-  const phone = document.getElementById('reg-phone').value;
-  const address = document.getElementById('reg-address').value;
-  const lat = document.getElementById('reg-lat').value;
-  const lng = document.getElementById('reg-lng').value;
-  const photoInput = document.getElementById('reg-photos');
-  const btn = document.getElementById('submit-btn');
-
-  if (!name || !owner || !phone || !address || !lat || !lng) {
-    alert("Kripya saari details bharein!");
-    return;
-  }
-
-  // Compile Services into an Array
-  const servicesArray = [];
-  const rows = document.querySelectorAll('.service-row');
-  rows.forEach(row => {
-      const sName = row.querySelector('.s-name').value;
-      const sPrice = row.querySelector('.s-price').value;
-      const sDur = row.querySelector('.s-dur').value;
-      if(sName && sPrice && sDur) {
-          servicesArray.push({ name: sName, price: parseInt(sPrice), duration: parseInt(sDur) });
-      }
+  // Gallery (Max 5 Photos)
+  const gal = document.getElementById('prof-gallery');
+  gal.innerHTML = '';
+  selectedShop.photos.forEach(src => {
+      gal.innerHTML += `<img src="${src}" onclick="openLightbox('${src}')" class="w-32 h-32 rounded-lg object-cover snap-center cursor-pointer border border-slate-600">`;
   });
 
-  const formData = new FormData();
-  formData.append('name', name);
-  formData.append('ownerName', owner);
-  formData.append('phone', phone);
-  formData.append('address', address);
-  formData.append('lat', lat);
-  formData.append('lng', lng);
-  formData.append('services', JSON.stringify(servicesArray));
-  
-  // Attach multiple photos safely (Max 10)
-  for(let i = 0; i < photoInput.files.length; i++) {
-      if(i < 10) { 
-          formData.append('photos', photoInput.files[i]);
-      }
+  // Services Radio Buttons
+  const sList = document.getElementById('prof-services');
+  sList.innerHTML = '';
+  selectedShop.services.forEach((s, idx) => {
+      sList.innerHTML += `
+        <label class="flex items-center justify-between bg-slate-900 p-3 rounded-lg border border-slate-700 cursor-pointer">
+          <div class="flex space-x-3">
+            <input type="radio" name="service" value="${idx}" onchange="selectedService = selectedShop.services[${idx}]" class="accent-amber-500 w-4 h-4 mt-1">
+            <div><p class="text-sm font-bold text-white">${s.name}</p><p class="text-xs text-slate-400">⏱ ${s.duration} mins</p></div>
+          </div>
+          <span class="text-sm font-bold text-amber-400">₹${s.price}</span>
+        </label>`;
+  });
+
+  // Queue Data
+  document.getElementById('prof-queue').innerText = selectedShop.queue.length;
+  document.getElementById('prof-wait').innerText = selectedShop.queue.reduce((acc, curr) => acc + curr.duration, 0) + " mins";
+
+  // Owner Check (Agar localStorage mein owner ka number hai to Edit button dikhega)
+  if(ownerPhone === selectedShop.phone) {
+      document.getElementById('owner-actions').classList.remove('hidden');
+  } else {
+      document.getElementById('owner-actions').classList.add('hidden');
   }
 
-  try {
-      btn.innerText = "Uploading Photos... Please wait";
-      btn.disabled = true;
+  document.getElementById('profile-modal').classList.remove('hidden');
+  document.getElementById('profile-modal').classList.add('flex');
+}
 
-      const res = await fetch('/api/shops/register', {
-          method: 'POST',
-          body: formData
-      });
+function closeProfile() {
+  document.getElementById('profile-modal').classList.replace('flex', 'hidden');
+  // Marker reset
+  if(selectedShop && shopMarkers[selectedShop._id]) {
+      shopMarkers[selectedShop._id].setIcon(blueIcon);
+  }
+}
+
+// Lightbox Zoom Logic
+function openLightbox(src) {
+    document.getElementById('lightbox-img').src = src;
+    document.getElementById('lightbox-modal').classList.replace('hidden', 'flex');
+}
+function closeLightbox() {
+    document.getElementById('lightbox-modal').classList.replace('flex', 'hidden');
+}
+
+// ==========================================
+// OWNER LOGIN & FORM LOGIC
+// ==========================================
+function loginAsOwner() {
+    const p = prompt("Enter your registered Shop Mobile Number to access Edit rights:");
+    if(p) {
+        localStorage.setItem('barberq_owner_phone', p);
+        ownerPhone = p;
+        alert("Owner mode activated for this device!");
+    }
+}
+
+function openFormModal(mode) {
+    document.getElementById('form-modal').classList.replace('hidden', 'flex');
+    document.getElementById('dynamic-services').innerHTML = ''; // Clear old
+
+    if(mode === 'register') {
+        document.getElementById('form-title').innerText = "Register New Salon";
+        document.getElementById('form-shopId').value = "";
+        ['reg-name', 'reg-owner', 'reg-phone', 'reg-address', 'reg-lat', 'reg-lng'].forEach(id => document.getElementById(id).value = "");
+        document.getElementById('reg-open').value = "09:00 AM";
+        document.getElementById('reg-close').value = "09:00 PM";
+        document.getElementById('status-toggle-container').classList.add('hidden');
+        addServiceRow();
+    } else {
+        // Edit Mode (Pre-fill details)
+        document.getElementById('form-title').innerText = "Edit Your Salon";
+        document.getElementById('form-shopId').value = selectedShop._id;
+        document.getElementById('reg-name').value = selectedShop.shopName;
+        document.getElementById('reg-owner').value = selectedShop.ownerName;
+        document.getElementById('reg-phone').value = selectedShop.phone;
+        document.getElementById('reg-address').value = selectedShop.address;
+        document.getElementById('reg-lat').value = selectedShop.location.coordinates[1];
+        document.getElementById('reg-lng').value = selectedShop.location.coordinates[0];
+        document.getElementById('reg-open').value = selectedShop.openingTime;
+        document.getElementById('reg-close').value = selectedShop.closingTime;
+        
+        document.getElementById('status-toggle-container').classList.replace('hidden', 'flex');
+        document.getElementById('reg-status').checked = selectedShop.isOpenToday;
+
+        selectedShop.services.forEach(s => addServiceRow(s.name, s.price, s.duration));
+    }
+}
+function closeFormModal() { document.getElementById('form-modal').classList.replace('flex', 'hidden'); }
+
+function addServiceRow(n='', p='', d='') {
+    const row = document.createElement('div'); row.className = "flex space-x-2 service-row";
+    row.innerHTML = `<input type="text" value="${n}" placeholder="Service" class="s-name w-1/2 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">
+                     <input type="number" value="${p}" placeholder="₹" class="s-price w-1/4 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">
+                     <input type="number" value="${d}" placeholder="Mins" class="s-dur w-1/4 bg-slate-800 p-2 rounded text-xs text-white border border-slate-600">`;
+    document.getElementById('dynamic-services').appendChild(row);
+}
+function getCurrentLocationForReg() {
+    navigator.geolocation.getCurrentPosition((pos) => {
+        document.getElementById('reg-lat').value = pos.coords.latitude;
+        document.getElementById('reg-lng').value = pos.coords.longitude;
+    });
+}
+
+// Single Submit Function (Handles both POST for new and PUT for Edit)
+async function submitForm() {
+  const shopId = document.getElementById('form-shopId').value;
+  const isEdit = shopId !== "";
+  const formData = new FormData();
+  
+  formData.append('name', document.getElementById('reg-name').value);
+  formData.append('ownerName', document.getElementById('reg-owner').value);
+  formData.append('phone', document.getElementById('reg-phone').value);
+  formData.append('address', document.getElementById('reg-address').value);
+  formData.append('lat', document.getElementById('reg-lat').value);
+  formData.append('lng', document.getElementById('reg-lng').value);
+  formData.append('openingTime', document.getElementById('reg-open').value);
+  formData.append('closingTime', document.getElementById('reg-close').value);
+  if(isEdit) formData.append('isOpenToday', document.getElementById('reg-status').checked);
+
+  const sArr = [];
+  document.querySelectorAll('.service-row').forEach(row => {
+      const n = row.querySelector('.s-name').value, p = row.querySelector('.s-price').value, d = row.querySelector('.s-dur').value;
+      if(n && p && d) sArr.push({ name: n, price: parseInt(p), duration: parseInt(d) });
+  });
+  formData.append('services', JSON.stringify(sArr));
+  
+  const photoInput = document.getElementById('reg-photos');
+  for(let i = 0; i < photoInput.files.length; i++) { if(i < 5) formData.append('photos', photoInput.files[i]); }
+
+  const btn = document.getElementById('submit-btn');
+  try {
+      btn.innerText = "Processing... Please wait"; btn.disabled = true;
+      const url = isEdit ? `/api/shops/${shopId}` : `/api/shops/register`;
+      const method = isEdit ? 'PUT' : 'POST';
+
+      const res = await fetch(url, { method: method, body: formData });
       const data = await res.json();
       
       if(data.success) {
-          alert("Salon Live Ho Gaya Hai!");
-          toggleRegisterModal();
+          alert(isEdit ? "Profile Successfully Updated! Old photos deleted." : "Salon Live Ho Gaya Hai!");
+          closeFormModal();
+          if(isEdit) closeProfile();
           fetchNearbyShops(); 
-      } else {
-          alert("Error: " + data.error);
-      }
-  } catch (err) {
-      alert("Registration failed!");
-  } finally {
-      btn.innerText = "Save & Publish Salon";
-      btn.disabled = false;
-  }
+      } else { alert("Error: " + data.error); }
+  } catch (err) { alert("Action failed!"); } 
+  finally { btn.innerText = "Save Profile"; btn.disabled = false; }
 }
 
-// Submit Booking 
+// Booking System
 function confirmBooking() {
-  const name = document.getElementById('cust-name').value;
-  const phone = document.getElementById('cust-phone').value;
-  
-  if (!name || !phone || !selectedService) {
-    alert('Kripya apna naam, mobile number aur service chunein!');
-    return;
-  }
-
-  socket.emit('book_appointment', {
-    shopId: selectedShop.id,
-    customerName: name,
-    customerPhone: phone, 
-    serviceName: selectedService.name,
-    duration: selectedService.duration
-  });
+  const name = document.getElementById('cust-name').value, phone = document.getElementById('cust-phone').value;
+  if (!name || !phone || !selectedService) return alert('Naam, Number aur Service select karein!');
+  socket.emit('book_appointment', { shopId: selectedShop._id, customerName: name, customerPhone: phone, serviceName: selectedService.name, duration: selectedService.duration });
 }
-
-// Show Token Modal beautifully when confirmed
 socket.on('booking_confirmed', (data) => {
-  closeBookingModal();
-  
   document.getElementById('display-token').innerText = data.tokenNumber;
   document.getElementById('display-time').innerText = data.appointmentTime;
-  
-  document.getElementById('token-modal').classList.remove('hidden');
-  document.getElementById('token-modal').classList.add('flex');
-  
-  fetchNearbyShops();
+  document.getElementById('token-modal').classList.replace('hidden', 'flex');
+  fetchNearbyShops(); // Refresh queue
 });
-
 socket.on('queue_updated', ({ queue, shopId }) => {
-  if (selectedShop && selectedShop.id === shopId) {
-    document.getElementById('modal-queue-count').innerText = queue.length;
-    const totalWait = queue.reduce((acc, curr) => acc + curr.duration, 0);
-    document.getElementById('modal-wait-time').innerText = `${totalWait} mins`;
+  if (selectedShop && selectedShop._id === shopId) {
+    document.getElementById('prof-queue').innerText = queue.length;
+    document.getElementById('prof-wait').innerText = queue.reduce((acc, curr) => acc + curr.duration, 0) + " mins";
   }
 });
 
-// Initialize on Load
-window.onload = () => {
-  initMap();
-  getUserLocation();
-};
+window.onload = () => { initMap(); getUserLocation(); };
