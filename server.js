@@ -17,7 +17,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// 1. Cloudinary Setup (Auto-Compress to KBs)
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -34,7 +33,6 @@ const storage = new CloudinaryStorage({
 });
 const upload = multer({ storage: storage });
 
-// 2. MongoDB Database Connection
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Database Connected Successfully!"))
   .catch(err => console.log("❌ MongoDB Connection Error:", err));
@@ -58,10 +56,9 @@ const shopSchema = new mongoose.Schema({
     closingTime: { type: String, default: "21:00" },
     slotDuration: { type: Number, default: 30 }, 
     chairs: { type: Number, default: 1 }, 
-    
-    // Naya: Owner can mark specific dates as closed ['2026-08-25', '2026-08-26']
     closedDates: { type: [String], default: [] },
     
+    isOpenToday: { type: Boolean, default: true },
     rating: { type: Number, default: 5.0 },
     createdAt: { type: Date, default: Date.now }
 });
@@ -76,8 +73,6 @@ const bookingSchema = new mongoose.Schema({
     serviceName: String,
     bookingDate: { type: String, required: true }, 
     timeSlot: { type: String, required: true }, 
-    
-    // AUTO-DELETE MAGIC (Midnight of that date)
     expireAt: { type: Date, required: true } 
 });
 bookingSchema.index({ expireAt: 1 }, { expireAfterSeconds: 0 });
@@ -107,15 +102,12 @@ const minsToTime = (mins) => {
 // ==========================================
 // 4. REST APIs
 // ==========================================
-
-// UIDAI Slot Generator API
 app.get('/api/shops/:id/slots', async (req, res) => {
     try {
         const dateStr = req.query.date; 
         const shop = await Shop.findById(req.params.id);
         if (!shop) return res.status(404).json({ error: "Shop not found" });
 
-        // Agar shop owner ne is date ko closed mark kiya hai
         if (shop.closedDates && shop.closedDates.includes(dateStr)) {
             return res.json({ slots: [], bookings: [], isClosed: true });
         }
@@ -127,42 +119,32 @@ app.get('/api/shops/:id/slots', async (req, res) => {
 
         let slots = [];
         for (let t = startMins; t + duration <= endMins; t += duration) {
-            let timeStr = `${minsToTime(t)} - ${minsToTime(t + duration)}`;
-            slots.push({ time: timeStr, total: capacity, available: capacity });
+            slots.push({ time: `${minsToTime(t)} - ${minsToTime(t + duration)}`, total: capacity, available: capacity });
         }
 
-        // Fetch bookings to calculate availability
-        const bookings = await Booking.find({ shopId: shop._id, bookingDate: dateStr });
+        const bookings = await Booking.find({ shopId: shop._id, bookingDate: dateStr }).sort({ createdAt: 1 });
         bookings.forEach(b => {
             let s = slots.find(slot => slot.time === b.timeSlot);
             if(s && s.available > 0) s.available--;
         });
 
         res.json({ slots, bookings, isClosed: false });
-    } catch (err) {
-        res.status(500).json({ error: "Failed to load slots" });
-    }
+    } catch (err) { res.status(500).json({ error: "Failed to load slots" }); }
 });
 
-// Fetch Nearby Shops
 app.get('/api/shops/nearby', async (req, res) => {
   const userLat = parseFloat(req.query.lat);
   const userLng = parseFloat(req.query.lng);
-
   try {
       const shops = await Shop.find({
-          location: {
-              $near: { $geometry: { type: "Point", coordinates: [userLng, userLat] }, $maxDistance: 50000 }
-          }
+          location: { $near: { $geometry: { type: "Point", coordinates: [userLng, userLat] }, $maxDistance: 50000 } }
       });
 
       const nearby = await Promise.all(shops.map(async (shop) => {
           const R = 6371; 
           const dLat = (shop.location.coordinates[1] - userLat) * Math.PI / 180;
           const dLon = (shop.location.coordinates[0] - userLng) * Math.PI / 180;
-          const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                    Math.cos(userLat * Math.PI / 180) * Math.cos(shop.location.coordinates[1] * Math.PI / 180) * 
-                    Math.sin(dLon/2) * Math.sin(dLon/2);
+          const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(userLat * Math.PI / 180) * Math.cos(shop.location.coordinates[1] * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
           return { ...shop._doc, distanceKm: (R * c).toFixed(2) };
       }));
@@ -170,31 +152,27 @@ app.get('/api/shops/nearby', async (req, res) => {
   } catch(err) { res.status(500).json({ error: "Database error" }); }
 });
 
-// Register New Salon
 app.post('/api/shops/register', upload.array('photos', 5), async (req, res) => {
   const { name, ownerName, phone, address, lat, lng, services, openingTime, closingTime, slotDuration, chairs, closedDates } = req.body;
-  const imagePaths = req.files ? req.files.map(f => f.path) : [];
-
   try {
       const newShop = new Shop({
         shopName: name, ownerName, phone, address,
         openingTime, closingTime, 
-        slotDuration: parseInt(slotDuration), chairs: parseInt(chairs),
+        slotDuration: parseInt(slotDuration) || 30, chairs: parseInt(chairs) || 1,
         closedDates: JSON.parse(closedDates || '[]'),
         location: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
         services: JSON.parse(services || '[]'),
-        photos: imagePaths
+        photos: req.files ? req.files.map(f => f.path) : []
       });
       await newShop.save();
       res.status(201).json({ success: true, shopId: newShop._id });
   } catch(err) { res.status(500).json({ error: "Registration Failed." }); }
 });
 
-// Update Salon
 app.put('/api/shops/:id', upload.array('photos', 5), async (req, res) => {
     try {
         const shop = await Shop.findById(req.params.id);
-        const { name, ownerName, phone, address, services, openingTime, closingTime, slotDuration, chairs, closedDates } = req.body;
+        const { name, ownerName, phone, address, services, openingTime, closingTime, slotDuration, chairs, closedDates, isOpenToday } = req.body;
         
         if (req.files && req.files.length > 0) {
             await deleteImagesFromCloudinary(shop.photos);
@@ -203,8 +181,9 @@ app.put('/api/shops/:id', upload.array('photos', 5), async (req, res) => {
 
         shop.shopName = name; shop.ownerName = ownerName; shop.phone = phone; shop.address = address;
         shop.openingTime = openingTime; shop.closingTime = closingTime;
-        shop.slotDuration = parseInt(slotDuration); shop.chairs = parseInt(chairs);
+        shop.slotDuration = parseInt(slotDuration) || 30; shop.chairs = parseInt(chairs) || 1;
         shop.closedDates = JSON.parse(closedDates || '[]');
+        shop.isOpenToday = (isOpenToday === 'true');
         shop.services = JSON.parse(services || '[]');
 
         await shop.save();
@@ -235,15 +214,16 @@ io.on('connection', (socket) => {
     try {
         const shop = await Shop.findById(shopId);
         if (shop) {
-          // IMPORTANT FIX: Token expire hoga usi date ki raat 11:59:59 PM baje (Zero Garbage next morning)
-          const expireDate = new Date(`${bookingDate}T23:59:59+05:30`); 
+          // Fix: Ensure token deletes exactly 24 hours after booking date
+          const expireDate = new Date(bookingDate);
+          expireDate.setDate(expireDate.getDate() + 1); 
+          expireDate.setHours(2, 0, 0, 0); // Expiry safe buffer
 
           const newBooking = new Booking({
               shopId: shop._id,
               tokenNumber: "TKN-" + Math.floor(1000 + Math.random() * 9000),
               customerName, customerPhone, serviceName,
-              bookingDate, timeSlot,
-              expireAt: expireDate 
+              bookingDate, timeSlot, expireAt: expireDate 
           });
           await newBooking.save();
 
@@ -253,7 +233,8 @@ io.on('connection', (socket) => {
               tokenNumber: newBooking.tokenNumber, 
               appointmentTime: `${bookingDate} | ${timeSlot}`,
               shopName: shop.shopName,
-              shopAddress: shop.address
+              shopAddress: shop.address,
+              shopPhone: shop.phone // Owner's contact sent for the slip
           });
         }
     } catch(err) { console.log(err); }

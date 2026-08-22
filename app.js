@@ -3,7 +3,8 @@ let userLat = 28.6139, userLng = 77.2090;
 let map, userMarker, allShops = [], shopMarkers = {};
 let selectedShop = null, selectedService = null, selectedSlotTime = null;
 let ownerPhone = localStorage.getItem('barberq_owner_phone') || null;
-let formClosedDates = []; // Global array for holidays
+let formClosedDates = []; 
+let selectedPhotosToUpload = []; // Photos array storage
 
 const redIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34] });
 const blueIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34] });
@@ -35,7 +36,7 @@ async function fetchNearbyShops() {
     
     container.innerHTML += `
       <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 cursor-pointer hover:border-amber-500 transition flex space-x-3" onclick="openProfile('${shop._id}')">
-        <img src="${shop.photos[0] || ''}" class="w-20 h-20 rounded-lg object-cover">
+        <img src="${shop.photos[0] || 'https://via.placeholder.com/100'}" class="w-20 h-20 rounded-lg object-cover">
         <div class="flex-1">
           <div class="flex justify-between items-start"><h3 class="font-bold text-amber-400">${shop.shopName}</h3></div>
           <p class="text-xs text-slate-400">📍 ${shop.distanceKm} km away</p>
@@ -75,7 +76,7 @@ function openProfile(shopId) {
   dateInput.max = maxDate.toLocaleDateString('en-CA');
   dateInput.value = dateInput.min;
   
-  loadSlots(); // Load slots for today immediately
+  loadSlots();
 
   if(ownerPhone === selectedShop.phone) document.getElementById('owner-actions').classList.remove('hidden');
   else document.getElementById('owner-actions').classList.add('hidden');
@@ -93,7 +94,7 @@ function openLightbox(src) { document.getElementById('lightbox-img').src = src; 
 function closeLightbox() { document.getElementById('lightbox-modal').classList.replace('flex', 'hidden'); }
 
 // ==========================================
-// UIDAI SLOT LOGIC (With Closed Dates checking)
+// UIDAI SLOT LOGIC & DASHBOARD
 // ==========================================
 async function loadSlots() {
     const date = document.getElementById('book-date').value;
@@ -107,7 +108,6 @@ async function loadSlots() {
     const grid = document.getElementById('slot-grid');
     grid.innerHTML = '';
     
-    // Check if Owner marked this date as Closed
     if(data.isClosed) {
         document.getElementById('closed-overlay').classList.replace('hidden','flex');
         document.getElementById('slot-total-tokens').innerText = "0";
@@ -135,18 +135,18 @@ async function loadSlots() {
     document.getElementById('slot-total-tokens').innerText = totalCap;
     document.getElementById('slot-avail-tokens').innerText = availCap;
 
-    // Load Dashboard with ALL active bookings for this date (No Overwrite bug)
+    // Load Live Dashboard for Owner (Ensures no Overwrites)
     if(ownerPhone === selectedShop.phone) {
         document.getElementById('owner-dashboard').classList.remove('hidden');
         const dashList = document.getElementById('owner-bookings-list');
         dashList.innerHTML = '';
         if(data.bookings.length === 0) dashList.innerHTML = '<p class="text-xs text-slate-400">No bookings for this date.</p>';
         data.bookings.forEach(b => {
-            dashList.innerHTML += `
-              <div class="bg-slate-700 p-2 rounded flex justify-between text-xs border border-slate-600">
+            dashList.insertAdjacentHTML('beforeend', `
+              <div class="bg-slate-700 p-2 rounded flex justify-between text-xs border border-slate-600 mb-2">
                  <div><p class="font-bold text-amber-400">${b.tokenNumber}</p><p class="text-white font-bold">${b.timeSlot}</p></div>
                  <div class="text-right"><p class="text-slate-300 font-bold">${b.customerName}</p><p class="text-slate-400">${b.customerPhone}</p></div>
-              </div>`;
+              </div>`);
         });
     } else {
         document.getElementById('owner-dashboard').classList.add('hidden');
@@ -165,15 +165,8 @@ function checkBookingBtn() {
     if(selectedSlotTime && selectedService) btn.disabled = false; else btn.disabled = true;
 }
 
-function validateFiles(input) {
-    if(input.files.length > 5) { alert("Maximum 5 photos allowed!"); input.value = ''; return; }
-    for(let file of input.files) {
-        if(file.size > 1024 * 1024) { alert(`File ${file.name} is larger than 1MB! Please select smaller photos.`); input.value = ''; return; }
-    }
-}
-
 // ==========================================
-// FORM, HOLIDAYS & OWNER LOGIC
+// FORM, HOLIDAYS & 5-PHOTO QUEUE LOGIC
 // ==========================================
 function loginAsOwner() {
     const p = prompt("Enter your registered Shop Mobile Number:");
@@ -183,7 +176,7 @@ function loginAsOwner() {
 function openFormModal(mode) {
     document.getElementById('form-modal').classList.replace('hidden', 'flex');
     document.getElementById('dynamic-services').innerHTML = ''; 
-    formClosedDates = []; renderHolidays();
+    formClosedDates = []; selectedPhotosToUpload = []; renderHolidays(); renderPhotoQueue();
     
     if(mode === 'register') {
         document.getElementById('form-shopId').value = "";
@@ -206,18 +199,48 @@ function openFormModal(mode) {
 }
 function closeFormModal() { document.getElementById('form-modal').classList.replace('flex', 'hidden'); }
 
-// Holiday Array Manager
-function addHoliday() {
-    const dateVal = document.getElementById('holiday-picker').value;
-    if(dateVal && !formClosedDates.includes(dateVal)) { formClosedDates.push(dateVal); renderHolidays(); }
+// Range Holiday Manager
+function addHolidayRange() {
+    let start = document.getElementById('holiday-start').value;
+    let end = document.getElementById('holiday-end').value;
+    if(!start) return alert("Please select 'From Date'");
+    if(!end) end = start; 
+    
+    let currDate = new Date(start); let endDate = new Date(end);
+    if(currDate > endDate) return alert("From Date cannot be after To Date");
+
+    while(currDate <= endDate) {
+        let dStr = currDate.toLocaleDateString('en-CA');
+        if(!formClosedDates.includes(dStr)) formClosedDates.push(dStr);
+        currDate.setDate(currDate.getDate() + 1);
+    }
+    renderHolidays();
+    document.getElementById('holiday-start').value = ''; document.getElementById('holiday-end').value = '';
 }
-function removeHoliday(dateVal) {
-    formClosedDates = formClosedDates.filter(d => d !== dateVal); renderHolidays();
-}
+function removeHoliday(dateVal) { formClosedDates = formClosedDates.filter(d => d !== dateVal); renderHolidays(); }
 function renderHolidays() {
     const list = document.getElementById('holiday-list'); list.innerHTML = '';
     formClosedDates.forEach(d => {
         list.innerHTML += `<span class="bg-red-500/20 text-red-400 text-[10px] font-bold px-2 py-1 rounded flex items-center space-x-1"><span>${d}</span><button type="button" onclick="removeHoliday('${d}')" class="text-white ml-1 bg-red-600 rounded-full w-4 h-4 flex items-center justify-center">×</button></span>`;
+    });
+}
+
+// 5 Photo Queue UI
+function handlePhotoSelect(input) {
+    if(selectedPhotosToUpload.length + input.files.length > 5) { alert("Maximum 5 photos allowed!"); return; }
+    for(let file of input.files) {
+        if(file.size > 1024 * 1024) { alert(`File ${file.name} is larger than 1MB!`); continue; }
+        selectedPhotosToUpload.push(file);
+    }
+    input.value = ''; renderPhotoQueue();
+}
+function removePhotoFromQueue(index) { selectedPhotosToUpload.splice(index, 1); renderPhotoQueue(); }
+function renderPhotoQueue() {
+    const list = document.getElementById('photo-preview-list'); list.innerHTML = '';
+    document.getElementById('photo-count-text').innerText = `${selectedPhotosToUpload.length}/5 added`;
+    selectedPhotosToUpload.forEach((file, idx) => {
+        const url = URL.createObjectURL(file);
+        list.innerHTML += `<div class="relative"><img src="${url}" class="w-12 h-12 rounded object-cover border border-slate-500"><button type="button" onclick="removePhotoFromQueue(${idx})" class="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] w-5 h-5 rounded-full font-bold">×</button></div>`;
     });
 }
 
@@ -228,7 +251,7 @@ function addServiceRow(n='', p='') {
 }
 function getCurrentLocationForReg() { navigator.geolocation.getCurrentPosition((pos) => { document.getElementById('reg-lat').value = pos.coords.latitude; document.getElementById('reg-lng').value = pos.coords.longitude; }); }
 
-// Strong Multi-Photo Logic 
+// Bug Fix 1: Form Save & Put request Strong Error Handling
 async function submitForm() {
   const shopId = document.getElementById('form-shopId').value, isEdit = shopId !== "";
   const formData = new FormData();
@@ -238,7 +261,7 @@ async function submitForm() {
   formData.append('lat', document.getElementById('reg-lat').value); formData.append('lng', document.getElementById('reg-lng').value);
   formData.append('openingTime', document.getElementById('reg-open').value); formData.append('closingTime', document.getElementById('reg-close').value);
   formData.append('slotDuration', document.getElementById('reg-dur').value); formData.append('chairs', document.getElementById('reg-chair').value);
-  formData.append('closedDates', JSON.stringify(formClosedDates)); // Holiday array attached
+  formData.append('closedDates', JSON.stringify(formClosedDates)); 
 
   const sArr = [];
   document.querySelectorAll('.service-row').forEach(row => {
@@ -247,20 +270,19 @@ async function submitForm() {
   });
   formData.append('services', JSON.stringify(sArr));
   
-  // Array format to guarantee multiple photos append perfectly
-  const photoInput = document.getElementById('reg-photos');
-  Array.from(photoInput.files).slice(0,5).forEach(file => {
-      formData.append('photos', file);
-  });
+  // Safe Array Append
+  selectedPhotosToUpload.forEach(file => formData.append('photos', file));
 
   const btn = document.getElementById('submit-btn');
   try {
       btn.innerText = "Processing... Please wait"; btn.disabled = true;
       const res = await fetch(isEdit ? `/api/shops/${shopId}` : `/api/shops/register`, { method: isEdit ? 'PUT' : 'POST', body: formData });
       const data = await res.json();
-      if(data.success) { alert(isEdit ? "Profile Updated! Old photos deleted." : "Salon Live!"); closeFormModal(); if(isEdit) closeProfile(); fetchNearbyShops(); } 
-      else { alert("Error: " + data.error); }
-  } catch (err) { alert("Action failed!"); } 
+      if(res.ok && data.success) { 
+          alert(isEdit ? "Profile Successfully Updated! Old photos cleared." : "Salon Live!"); 
+          closeFormModal(); if(isEdit) closeProfile(); fetchNearbyShops(); 
+      } else { alert("Error: " + (data.error || "Save Failed")); }
+  } catch (err) { alert("Action failed! Check internet or server."); } 
   finally { btn.innerText = "Save Profile"; btn.disabled = false; }
 }
 
@@ -276,10 +298,14 @@ function confirmBooking() {
 
 socket.on('booking_confirmed', (data) => {
   document.getElementById('book-btn').innerText = "Confirm Appointment";
+  
+  // Display Details in Token Slip
   document.getElementById('display-shop-name').innerText = data.shopName;
   document.getElementById('display-shop-address').innerText = data.shopAddress;
+  document.getElementById('display-shop-phone').innerText = "📞 Contact: " + data.shopPhone;
   document.getElementById('display-token').innerText = data.tokenNumber;
   document.getElementById('display-time').innerText = data.appointmentTime;
+  
   document.getElementById('token-modal').classList.replace('hidden', 'flex');
   loadSlots(); 
 });
